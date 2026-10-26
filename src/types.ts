@@ -5,6 +5,8 @@ export interface Categoria {
   nombre: string
   presupuesto: number
   color: string
+  /** Clave del catálogo de iconos (lib/iconos). Si falta, se sugiere por el nombre. */
+  icono?: string
 }
 
 export interface MetodoPago {
@@ -30,6 +32,7 @@ export interface Fondo {
   porcentaje: number
   cuentaId: ID | null
   enSaldoNeto: boolean
+  icono?: string
 }
 
 export interface Gasto {

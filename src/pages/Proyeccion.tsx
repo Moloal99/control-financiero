@@ -3,7 +3,8 @@ import { Area, CartesianGrid, ComposedChart, Legend, Line, ResponsiveContainer, 
 import { useStore } from '../store'
 import { proyeccion } from '../lib/calc'
 import { money, moneyShort, nombreMes, pct } from '../lib/format'
-import { Card, Field, KPI, Td, Th } from '../components/ui'
+import { ArrowDownLeft, PiggyBank, Percent, Receipt, SlidersHorizontal, TableProperties, TrendingUp } from 'lucide-react'
+import { Card, Field, KPI, Segmented, Td, Th } from '../components/ui'
 
 export function Proyeccion({ mes }: { mes: string }) {
   const s = useStore()
@@ -24,42 +25,35 @@ export function Proyeccion({ mes }: { mes: string }) {
   const ahorroTotal = data.reduce((a, d) => a + d.ahorro, 0)
   const gastoTotal = data.reduce((a, d) => a + d.gasto, 0)
   const ingresoTotal = data.reduce((a, d) => a + d.ingreso, 0)
-  let acumulado = 0
-  const dataAcum = data.map((d) => ({ ...d, acumulado: (acumulado += d.ahorro) }))
+  const dataAcum = data.map((d, i) => ({ ...d, acumulado: data.slice(0, i + 1).reduce((a, x) => a + x.ahorro, 0) }))
 
   return (
     <div className="space-y-4">
-      <Card title="Supuestos" subtitle="Base = promedio de los últimos 3 meses por categoría (o el presupuesto si no hay historial) × (1 + inflación)ⁿ">
-        <div className="grid sm:grid-cols-2 lg:grid-cols-4 gap-3">
-          <Field label="Horizonte (meses)">
-            <select className="input" value={n} onChange={(e) => setN(Number(e.target.value))}>
-              {[3, 6, 12, 24].map((k) => (
-                <option key={k} value={k}>
-                  {k} meses
-                </option>
-              ))}
-            </select>
+      <Card icon={SlidersHorizontal} title="Supuestos y escenarios" subtitle="La base es el promedio de los últimos 3 meses por categoría (o el presupuesto si no hay historial), ajustado por inflación mes a mes">
+        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
+          <Field label="Horizonte (meses)" grupo>
+            <Segmented full value={n} onChange={setN} options={[3, 6, 12, 24].map((k) => ({ id: k, label: String(k) }))} />
           </Field>
           <Field label="Inflación mensual (%)" hint="Valor por defecto en Ajustes">
             <input className="input" inputMode="decimal" value={inflPct} onChange={(e) => setInflPct(e.target.value)} />
           </Field>
           <Field label={`Escenario: ingreso ${ajusteIngreso >= 0 ? '+' : ''}${ajusteIngreso}%`}>
-            <input type="range" min={-30} max={50} step={5} value={ajusteIngreso} onChange={(e) => setAjusteIngreso(Number(e.target.value))} className="w-full accent-[var(--primary)]" />
+            <input type="range" min={-30} max={50} step={5} value={ajusteIngreso} onChange={(e) => setAjusteIngreso(Number(e.target.value))} className="w-full" />
           </Field>
           <Field label={`Escenario: recorte de gasto ${recorte}%`}>
-            <input type="range" min={0} max={50} step={5} value={recorte} onChange={(e) => setRecorte(Number(e.target.value))} className="w-full accent-[var(--primary)]" />
+            <input type="range" min={0} max={50} step={5} value={recorte} onChange={(e) => setRecorte(Number(e.target.value))} className="w-full" />
           </Field>
         </div>
       </Card>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KPI label={`Gasto proyectado (${n} m)`} value={money(gastoTotal, mon)} hint={`Presupuesto: ${money(p.presupuestoTotal, mon)}`} tone={gastoTotal > p.presupuestoTotal ? 'bad' : 'neutral'} />
-        <KPI label={`Ingreso proyectado (${n} m)`} value={money(ingresoTotal, mon)} />
-        <KPI label={`Ahorro proyectado (${n} m)`} value={money(ahorroTotal, mon)} tone={ahorroTotal < 0 ? 'bad' : 'ok'} />
-        <KPI label="Tasa de ahorro proyectada" value={pct(ingresoTotal > 0 ? ahorroTotal / ingresoTotal : null, 1)} tone={ingresoTotal > 0 && ahorroTotal / ingresoTotal >= 0.2 ? 'ok' : 'warn'} />
+        <KPI icon={Receipt} label={`Gasto proyectado (${n} m)`} value={money(gastoTotal, mon)} hint={`Presupuesto: ${money(p.presupuestoTotal, mon)}`} tone={gastoTotal > p.presupuestoTotal ? 'bad' : 'neutral'} />
+        <KPI icon={ArrowDownLeft} label={`Ingreso proyectado (${n} m)`} value={money(ingresoTotal, mon)} />
+        <KPI icon={PiggyBank} label={`Ahorro proyectado (${n} m)`} value={money(ahorroTotal, mon)} tone={ahorroTotal < 0 ? 'bad' : 'ok'} />
+        <KPI icon={Percent} label="Tasa de ahorro proyectada" value={pct(ingresoTotal > 0 ? ahorroTotal / ingresoTotal : null, 1)} tone={ingresoTotal > 0 && ahorroTotal / ingresoTotal >= 0.2 ? 'ok' : 'warn'} />
       </div>
 
-      <Card title="Ahorro acumulado proyectado" subtitle="Ingreso − gasto proyectado, acumulado mes a mes">
+      <Card icon={TrendingUp} title="Ahorro acumulado proyectado" subtitle="Ingreso − gasto proyectado, acumulado mes a mes">
         <div className="h-60">
           <ResponsiveContainer>
             <ComposedChart data={dataAcum} margin={{ left: 0, right: 8, top: 8, bottom: 0 }}>
@@ -82,12 +76,12 @@ export function Proyeccion({ mes }: { mes: string }) {
         </div>
       </Card>
 
-      <Card title="Detalle por categoría" subtitle="Gasto proyectado por mes (sin aplicar escenarios)" padding={false}>
+      <Card icon={TableProperties} title="Detalle por categoría" subtitle="Gasto proyectado por mes, sin aplicar los escenarios. Desliza la tabla para ver todos los meses." padding={false}>
         <div className="scroll-x">
           <table className="w-full mt-3" style={{ minWidth: 520 + n * 90 }}>
             <thead className="border-b border-line">
               <tr>
-                <Th>Categoría</Th>
+                <Th className="sticky left-0 bg-surface z-10 pl-5">Categoría</Th>
                 <Th right>Base</Th>
                 {p.meses.map((m) => (
                   <Th key={m} right>
@@ -102,7 +96,7 @@ export function Proyeccion({ mes }: { mes: string }) {
             <tbody>
               {p.filas.map((f) => (
                 <tr key={f.categoria.id} className="border-b border-line last:border-0">
-                  <Td>{f.categoria.nombre}</Td>
+                  <Td className="sticky left-0 bg-surface z-10 pl-5 font-semibold whitespace-nowrap">{f.categoria.nombre}</Td>
                   <Td right>{money(f.base, mon)}</Td>
                   {f.meses.map((v, i) => (
                     <Td key={i} right>
@@ -117,7 +111,7 @@ export function Proyeccion({ mes }: { mes: string }) {
             </tbody>
             <tfoot className="border-t border-line font-semibold">
               <tr>
-                <Td>Total</Td>
+                <Td className="sticky left-0 bg-surface z-10 pl-5">Total</Td>
                 <Td right>{money(p.filas.reduce((a, f) => a + f.base, 0), mon)}</Td>
                 {p.totalPorMes.map((v, i) => (
                   <Td key={i} right>
@@ -129,7 +123,7 @@ export function Proyeccion({ mes }: { mes: string }) {
                 <Td right className={p.presupuestoTotal - p.total < 0 ? 'text-bad' : 'text-ok'}>{money(p.presupuestoTotal - p.total, mon)}</Td>
               </tr>
               <tr className="text-muted font-normal">
-                <Td>Ahorro</Td>
+                <Td className="sticky left-0 bg-surface z-10 pl-5">Ahorro</Td>
                 <Td right>—</Td>
                 {p.ahorroPorMes.map((v, i) => (
                   <Td key={i} right className={v < 0 ? 'text-bad' : ''}>

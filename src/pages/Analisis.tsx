@@ -3,7 +3,9 @@ import { Bar, BarChart, CartesianGrid, ComposedChart, Legend, Line, ResponsiveCo
 import { useStore } from '../store'
 import { serieMensual } from '../lib/calc'
 import { money, moneyShort, nombreMes, pct } from '../lib/format'
-import { Card, Empty, KPI, Td, Th, colorReal } from '../components/ui'
+import { ArrowDownRight, ArrowUpRight, CalendarClock, ChartColumn, ChartNoAxesCombined, Flame, PiggyBank, Receipt, Trophy } from 'lucide-react'
+import { iconoDe } from '../lib/iconos'
+import { Barra, Card, Dato, Empty, KPI, Segmented, Td, Th, colorReal } from '../components/ui'
 
 export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
   const s = useStore()
@@ -43,30 +45,36 @@ export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
     <div className="space-y-4">
       <div className="flex items-center justify-between gap-3 flex-wrap">
         <p className="text-sm text-muted">Tendencias de los últimos {n} meses hasta {nombreMes(mes)}</p>
-        <div className="flex gap-1 p-1 rounded-xl bg-surface-2">
-          {([6, 12, 24] as const).map((k) => (
-            <button key={k} onClick={() => setN(k)} className={`px-3 py-1.5 rounded-lg text-sm font-semibold ${n === k ? 'bg-surface shadow text-primary' : 'text-muted'}`}>
-              {k} m
-            </button>
-          ))}
-        </div>
+        <Segmented
+          size="sm"
+          value={n}
+          onChange={setN}
+          options={[
+            { id: 6 as const, label: '6 meses' },
+            { id: 12 as const, label: '12 meses' },
+            { id: 24 as const, label: '24 meses' },
+          ]}
+        />
       </div>
 
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
-        <KPI label="Gasto promedio mensual" value={money(promGasto, mon)} hint={`${conDatos.length} meses con datos`} />
-        <KPI label="Tasa de ahorro promedio" value={pct(promTasa, 1)} tone={(promTasa ?? 0) >= 0.2 ? 'ok' : 'warn'} />
+        <KPI icon={Receipt} label="Gasto promedio mensual" value={money(promGasto, mon)} hint={`${conDatos.length} meses con datos`} />
+        <KPI icon={PiggyBank} label="Tasa de ahorro promedio" value={pct(promTasa, 1)} tone={(promTasa ?? 0) >= 0.2 ? 'ok' : 'warn'} />
         <KPI
+          icon={tendencia !== null && tendencia > 0 ? ArrowUpRight : ArrowDownRight}
           label="Tendencia del gasto"
           value={tendencia === null ? '—' : `${tendencia > 0 ? '+' : ''}${pct(tendencia, 1)}`}
           tone={tendencia === null ? 'neutral' : tendencia > 0.05 ? 'bad' : tendencia < -0.05 ? 'ok' : 'neutral'}
           hint="últimos 3 meses vs. 3 anteriores"
         />
-        <KPI label="Mes de mayor gasto" value={peor ? money(peor.gasto, mon) : '—'} hint={peor ? nombreMes(peor.mes) : undefined} />
+        <KPI icon={Flame} label="Mes de mayor gasto" value={peor ? money(peor.gasto, mon) : '—'} hint={peor ? nombreMes(peor.mes) : undefined} />
       </div>
 
-      <Card title="Ingreso, gasto y ahorro" subtitle="Barras: ingreso y gasto · línea: media móvil de 3 meses del gasto">
+      <Card icon={ChartNoAxesCombined} title="Ingreso, gasto y ahorro" subtitle="Barras de ingreso y gasto, con la media móvil de 3 meses del gasto">
         {conDatos.length === 0 ? (
-          <Empty>Todavía no hay gastos registrados en este período.</Empty>
+          <Empty icon={ChartColumn} title="Aún no hay historia">
+            Cuando registres gastos de varios meses verás aquí cómo cambian. También puedes importar tu historial desde Excel.
+          </Empty>
         ) : (
           <div className="h-64">
             <ResponsiveContainer>
@@ -86,8 +94,8 @@ export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
         )}
       </Card>
 
-      <div className="grid lg:grid-cols-5 gap-4">
-        <Card title="Gasto por categoría en el tiempo" subtitle="Apilado por mes" className="lg:col-span-3">
+      <div className="grid grid-cols-1 lg:grid-cols-5 gap-4">
+        <Card icon={ChartColumn} title="Gasto por categoría en el tiempo" subtitle="Apilado por mes" className="lg:col-span-3">
           {conDatos.length === 0 ? (
             <Empty>Sin datos.</Empty>
           ) : (
@@ -106,7 +114,7 @@ export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
             </div>
           )}
         </Card>
-        <Card title="Ranking de categorías" subtitle={`Total del período: ${money(totalGasto, mon)}`} className="lg:col-span-2">
+        <Card icon={Trophy} title="Ranking de categorías" subtitle={`Total del período: ${money(totalGasto, mon)}`} className="lg:col-span-2">
           {totalGasto === 0 ? (
             <Empty>Sin datos.</Empty>
           ) : (
@@ -114,16 +122,19 @@ export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
               {porCatTotal.map(({ c, total }) => (
                 <li key={c.id}>
                   <div className="flex justify-between text-sm">
-                    <span className="flex items-center gap-2">
-                      <span className="h-2.5 w-2.5 rounded-full" style={{ background: c.color }} />
-                      {c.nombre}
+                    <span className="flex items-center gap-2 min-w-0">
+                      {(() => {
+                        const I = iconoDe(c)
+                        return <I size={16} style={{ color: c.color }} className="shrink-0" />
+                      })()}
+                      <span className="truncate">{c.nombre}</span>
                     </span>
                     <span className="num">
                       {money(total, mon)} <span className="text-muted">({pct(total / totalGasto)})</span>
                     </span>
                   </div>
-                  <div className="h-1.5 rounded-full bg-surface-2 mt-1 overflow-hidden">
-                    <div className="h-full rounded-full" style={{ width: `${(total / totalGasto) * 100}%`, background: c.color }} />
+                  <div className="mt-1.5">
+                    <Barra pct={total / totalGasto} color={c.color} alto="h-1.5" />
                   </div>
                 </li>
               ))}
@@ -132,7 +143,7 @@ export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
         </Card>
       </div>
 
-      <Card title="Tasa de ahorro mensual" subtitle={mejor ? `Mejor mes: ${nombreMes(mejor.mes)} (${pct(mejor.tasaAhorro, 1)})` : undefined}>
+      <Card icon={PiggyBank} title="Tasa de ahorro mensual" subtitle={mejor ? `Mejor mes: ${nombreMes(mejor.mes)} (${pct(mejor.tasaAhorro, 1)})` : undefined}>
         {conDatos.length === 0 ? (
           <Empty>Sin datos.</Empty>
         ) : (
@@ -150,12 +161,31 @@ export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
         )}
       </Card>
 
-      <Card title="Tabla mensual" subtitle="Resumen por mes" padding={false}>
-        <div className="scroll-x">
+      <Card icon={CalendarClock} title="Mes a mes" subtitle="Resumen de cada mes del período" padding={false}>
+        <ul className="md:hidden divide-y divide-line mt-2">
+          {serie
+            .slice()
+            .reverse()
+            .map((p) => (
+              <li key={p.mes} className="px-4 py-3">
+                <div className="flex items-center justify-between">
+                  <p className="font-semibold">{nombreMes(p.mes)}</p>
+                  <p className={`num text-sm font-bold ${p.ahorro < 0 ? 'text-bad' : 'text-ok'}`}>{pct(p.tasaAhorro, 1)}</p>
+                </div>
+                <div className="grid grid-cols-2 gap-x-4 gap-y-0.5 mt-1.5">
+                  <Dato k="Ingreso" v={money(p.ingreso, mon)} />
+                  <Dato k="Gasto" v={money(p.gasto, mon)} cls={p.gasto > p.presupuesto ? 'text-bad' : ''} />
+                  <Dato k="Presupuesto" v={money(p.presupuesto, mon)} />
+                  <Dato k="Ahorro" v={money(p.ahorro, mon)} cls={p.ahorro < 0 ? 'text-bad' : 'text-ok'} />
+                </div>
+              </li>
+            ))}
+        </ul>
+        <div className="hidden md:block scroll-x">
           <table className="w-full min-w-[640px] mt-3">
             <thead className="border-b border-line">
               <tr>
-                <Th>Mes</Th>
+                <Th className="pl-5">Mes</Th>
                 <Th right>Ingreso</Th>
                 <Th right>Gasto</Th>
                 <Th right>Presupuesto</Th>
@@ -170,7 +200,7 @@ export function Analisis({ mes, oscuro }: { mes: string; oscuro: boolean }) {
                 .reverse()
                 .map((p) => (
                   <tr key={p.mes} className="border-b border-line last:border-0">
-                    <Td>{nombreMes(p.mes)}</Td>
+                    <Td className="pl-5 font-semibold">{nombreMes(p.mes)}</Td>
                     <Td right>{money(p.ingreso, mon)}</Td>
                     <Td right>{money(p.gasto, mon)}</Td>
                     <Td right>{money(p.presupuesto, mon)}</Td>

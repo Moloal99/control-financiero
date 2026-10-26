@@ -7,10 +7,10 @@ import { uid } from './lib/format'
 type Sin<T> = Omit<T, 'id'>
 
 interface Acciones {
-  agregarGasto: (g: Sin<Gasto>) => void
+  agregarGasto: (g: Sin<Gasto>) => string
   editarGasto: (id: string, g: Partial<Gasto>) => void
   eliminarGasto: (id: string) => void
-  agregarMovimiento: (m: Sin<Movimiento>) => void
+  agregarMovimiento: (m: Sin<Movimiento>) => string
   editarMovimiento: (id: string, m: Partial<Movimiento>) => void
   eliminarMovimiento: (id: string) => void
   guardarCategoria: (c: Categoria) => void
@@ -35,10 +35,18 @@ export const useStore = create<Store>()(
   persist(
     (set) => ({
       ...datosIniciales(),
-      agregarGasto: (g) => set((s) => ({ gastos: [...s.gastos, { ...g, id: uid() }] })),
+      agregarGasto: (g) => {
+        const id = uid()
+        set((s) => ({ gastos: [...s.gastos, { ...g, id }] }))
+        return id
+      },
       editarGasto: (id, g) => set((s) => ({ gastos: s.gastos.map((x) => (x.id === id ? { ...x, ...g } : x)) })),
       eliminarGasto: (id) => set((s) => ({ gastos: s.gastos.filter((x) => x.id !== id) })),
-      agregarMovimiento: (m) => set((s) => ({ movimientos: [...s.movimientos, { ...m, id: uid() }] })),
+      agregarMovimiento: (m) => {
+        const id = uid()
+        set((s) => ({ movimientos: [...s.movimientos, { ...m, id }] }))
+        return id
+      },
       editarMovimiento: (id, m) =>
         set((s) => ({ movimientos: s.movimientos.map((x) => (x.id === id ? { ...x, ...m } : x)) })),
       eliminarMovimiento: (id) => set((s) => ({ movimientos: s.movimientos.filter((x) => x.id !== id) })),
