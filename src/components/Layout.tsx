@@ -1,17 +1,34 @@
-import { BarChart3, LayoutDashboard, List, Moon, Plus, Settings, Sun, TrendingUp, Wallet } from 'lucide-react'
+import { motion } from 'motion/react'
+import {
+  ArrowLeftRight, ChartColumn, FileSpreadsheet, LayoutDashboard, Moon, Plus, Settings, Sun, TrendingUp, Wallet,
+  type LucideIcon,
+} from 'lucide-react'
 import type { ReactNode } from 'react'
 import { useStore } from '../store'
+import { vibrar } from '../lib/feedback'
 
-export type Vista = 'panel' | 'movimientos' | 'cuentas' | 'analisis' | 'proyeccion' | 'ajustes'
+export type Vista = 'panel' | 'movimientos' | 'cuentas' | 'analisis' | 'proyeccion' | 'datos' | 'ajustes'
 
-export const VISTAS: { id: Vista; nombre: string; icono: typeof LayoutDashboard }[] = [
-  { id: 'panel', nombre: 'Panel', icono: LayoutDashboard },
-  { id: 'movimientos', nombre: 'Movimientos', icono: List },
-  { id: 'cuentas', nombre: 'Cuentas y fondos', icono: Wallet },
-  { id: 'analisis', nombre: 'Análisis', icono: BarChart3 },
-  { id: 'proyeccion', nombre: 'Proyección', icono: TrendingUp },
-  { id: 'ajustes', nombre: 'Ajustes', icono: Settings },
+export const VISTAS: { id: Vista; nombre: string; corto: string; icono: LucideIcon; descripcion: string }[] = [
+  { id: 'panel', nombre: 'Panel', corto: 'Panel', icono: LayoutDashboard, descripcion: 'Cómo va tu mes' },
+  { id: 'movimientos', nombre: 'Movimientos', corto: 'Movimientos', icono: ArrowLeftRight, descripcion: 'Gastos, ingresos y transferencias' },
+  { id: 'cuentas', nombre: 'Cuentas y fondos', corto: 'Cuentas', icono: Wallet, descripcion: 'Saldos y reparto del ingreso' },
+  { id: 'analisis', nombre: 'Análisis', corto: 'Análisis', icono: ChartColumn, descripcion: 'Tendencias mes a mes' },
+  { id: 'proyeccion', nombre: 'Proyección', corto: 'Proyección', icono: TrendingUp, descripcion: 'Escenarios a futuro' },
+  { id: 'datos', nombre: 'Importar y exportar', corto: 'Datos', icono: FileSpreadsheet, descripcion: 'Excel, plantillas y respaldos' },
+  { id: 'ajustes', nombre: 'Ajustes', corto: 'Ajustes', icono: Settings, descripcion: 'Categorías, cuentas y fondos' },
 ]
+
+export function Logo({ size = 36 }: { size?: number }) {
+  return (
+    <svg width={size} height={size} viewBox="0 0 48 48" aria-hidden="true" className="shrink-0">
+      <rect width="48" height="48" rx="13" fill="#3d35b5" />
+      <rect x="11" y="27" width="7" height="10" rx="2.5" fill="#fff" opacity=".55" />
+      <rect x="20.5" y="20" width="7" height="17" rx="2.5" fill="#fff" opacity=".8" />
+      <rect x="30" y="11" width="7" height="26" rx="2.5" fill="#f2a900" />
+    </svg>
+  )
+}
 
 export function Layout({
   vista,
@@ -28,83 +45,87 @@ export function Layout({
 }) {
   const setAjustes = useStore((s) => s.setAjustes)
   const toggleTema = () => setAjustes({ tema: oscuro ? 'claro' : 'oscuro' })
-  const movil: Vista[] = ['panel', 'movimientos', 'analisis', 'cuentas']
+  const actual = VISTAS.find((v) => v.id === vista)!
+  const principales = VISTAS.filter((v) => v.id !== 'datos' && v.id !== 'ajustes')
+  const secundarias = VISTAS.filter((v) => v.id === 'datos' || v.id === 'ajustes')
 
   return (
     <div className="min-h-dvh md:flex">
-      {/* Barra lateral (escritorio) */}
-      <aside className="hidden md:flex md:flex-col w-64 shrink-0 border-r border-line bg-surface sticky top-0 h-dvh">
-        <div className="px-5 py-5 flex items-center gap-3">
-          <div className="h-9 w-9 rounded-xl bg-primary text-white dark:text-[#03201c] grid place-items-center font-black">Bs</div>
-          <div>
-            <p className="font-bold leading-tight">Control Financiero</p>
-            <p className="text-xs text-muted">Finanzas personales</p>
+      {/* Barra lateral (escritorio y tableta) */}
+      <aside className="hidden md:flex md:flex-col w-[76px] lg:w-[248px] shrink-0 bg-rail text-rail-ink sticky top-0 h-dvh">
+        <div className="px-4 lg:px-5 pt-5 pb-6 flex items-center gap-3 justify-center lg:justify-start">
+          <Logo />
+          <div className="hidden lg:block">
+            <p className="font-extrabold text-white leading-tight tracking-tight">Control Financiero</p>
+            <p className="text-xs opacity-70">Tus finanzas en Bs</p>
           </div>
         </div>
-        <nav className="px-3 flex-1 space-y-1">
-          {VISTAS.map((v) => {
-            const Icono = v.icono
-            const activo = v.id === vista
-            return (
-              <button
-                key={v.id}
-                onClick={() => onVista(v.id)}
-                className={`w-full flex items-center gap-3 px-3 py-2.5 rounded-xl text-sm font-medium transition ${
-                  activo ? 'bg-primary-soft text-primary' : 'hover:bg-surface-2 text-ink'
-                }`}
-              >
-                <Icono size={18} />
-                {v.nombre}
-              </button>
-            )
-          })}
+        <nav className="px-3 flex-1 space-y-1" aria-label="Secciones">
+          {principales.map((v) => (
+            <RailItem key={v.id} v={v} activo={v.id === vista} onClick={() => onVista(v.id)} />
+          ))}
+          <div className="h-px bg-white/10 my-3 mx-2" />
+          {secundarias.map((v) => (
+            <RailItem key={v.id} v={v} activo={v.id === vista} onClick={() => onVista(v.id)} />
+          ))}
         </nav>
         <div className="p-3 space-y-2">
-          <button className="btn btn-primary w-full" onClick={onRegistrar}>
-            <Plus size={18} /> Registrar
+          <button
+            className="btn w-full bg-accent text-[#1d1a4d] hover:brightness-105 !px-0 lg:!px-4"
+            onClick={() => {
+              vibrar()
+              onRegistrar()
+            }}
+            title="Registrar (N)"
+          >
+            <Plus size={20} strokeWidth={2.6} /> <span className="hidden lg:inline">Registrar</span>
           </button>
-          <button className="btn btn-ghost w-full" onClick={toggleTema}>
-            {oscuro ? <Sun size={16} /> : <Moon size={16} />} {oscuro ? 'Tema claro' : 'Tema oscuro'}
+          <button className="btn w-full !px-0 lg:!px-4 text-rail-ink hover:bg-white/8" onClick={toggleTema} title={oscuro ? 'Tema claro' : 'Tema oscuro'}>
+            {oscuro ? <Sun size={18} /> : <Moon size={18} />} <span className="hidden lg:inline">{oscuro ? 'Tema claro' : 'Tema oscuro'}</span>
           </button>
         </div>
       </aside>
 
-      {/* Contenido */}
-      <div className="flex-1 min-w-0">
-        <header className="md:hidden sticky top-0 z-30 bg-surface/90 backdrop-blur border-b border-line px-4 py-3 flex items-center justify-between">
-          <div className="flex items-center gap-2">
-            <div className="h-8 w-8 rounded-lg bg-primary text-white dark:text-[#03201c] grid place-items-center font-black text-sm">Bs</div>
-            <p className="font-bold">Control Financiero</p>
-          </div>
-          <div className="flex items-center gap-1">
-            <button className="btn btn-ghost !border-0 !min-h-9 !px-2" onClick={toggleTema} aria-label="Cambiar tema">
-              {oscuro ? <Sun size={18} /> : <Moon size={18} />}
-            </button>
-            <button className="btn btn-ghost !border-0 !min-h-9 !px-2" onClick={() => onVista('ajustes')} aria-label="Ajustes">
-              <Settings size={18} />
-            </button>
+      <div className="flex-1 min-w-0 flex flex-col">
+        {/* Cabecera móvil */}
+        <header className="md:hidden sticky top-0 z-30 bg-bg/85 backdrop-blur-xl safe-top">
+          <div className="px-4 h-14 flex items-center justify-between gap-2">
+            <div className="flex items-center gap-2.5 min-w-0">
+              <Logo size={30} />
+              <p className="font-extrabold text-[17px] tracking-tight truncate">{actual.nombre}</p>
+            </div>
+            <div className="flex items-center">
+              <IconoHeader icono={FileSpreadsheet} label="Importar y exportar" activo={vista === 'datos'} onClick={() => onVista('datos')} />
+              <IconoHeader icono={oscuro ? Sun : Moon} label="Cambiar tema" onClick={toggleTema} />
+              <IconoHeader icono={Settings} label="Ajustes" activo={vista === 'ajustes'} onClick={() => onVista('ajustes')} />
+            </div>
           </div>
         </header>
-        <main className="px-4 py-4 md:px-8 md:py-6 max-w-7xl mx-auto pb-28 md:pb-10">{children}</main>
+
+        <main className="flex-1 w-full px-4 pt-2 pb-32 md:px-8 md:pt-7 md:pb-12 max-w-[1240px] mx-auto">{children}</main>
       </div>
 
       {/* Navegación inferior (móvil) */}
-      <nav className="md:hidden fixed bottom-0 inset-x-0 z-30 bg-surface border-t border-line safe-bottom">
-        <div className="grid grid-cols-5 items-end">
-          {movil.slice(0, 2).map((id) => (
-            <NavBtn key={id} id={id} vista={vista} onVista={onVista} />
+      <nav className="md:hidden fixed bottom-0 inset-x-0 z-40 bg-surface/92 backdrop-blur-xl border-t border-line safe-bottom" aria-label="Secciones">
+        <div className="grid grid-cols-5 items-stretch h-16">
+          {(['panel', 'movimientos'] as Vista[]).map((id) => (
+            <TabItem key={id} id={id} vista={vista} onVista={onVista} />
           ))}
-          <div className="flex justify-center -mt-5">
-            <button
-              onClick={onRegistrar}
-              className="h-14 w-14 rounded-full bg-primary text-white dark:text-[#03201c] shadow-lg grid place-items-center active:scale-95 transition"
-              aria-label="Registrar"
+          <div className="grid place-items-center">
+            <motion.button
+              whileTap={{ scale: 0.9, rotate: 90 }}
+              onClick={() => {
+                vibrar()
+                onRegistrar()
+              }}
+              className="-mt-7 h-[3.6rem] w-[3.6rem] rounded-[1.25rem] bg-primary text-primary-ink grid place-items-center shadow-[0_10px_24px_-8px_color-mix(in_srgb,var(--primary)_70%,transparent)] ring-4 ring-bg"
+              aria-label="Registrar gasto o ingreso"
             >
-              <Plus size={26} />
-            </button>
+              <Plus size={28} strokeWidth={2.6} />
+            </motion.button>
           </div>
-          {movil.slice(2).map((id) => (
-            <NavBtn key={id} id={id} vista={vista} onVista={onVista} />
+          {(['analisis', 'cuentas'] as Vista[]).map((id) => (
+            <TabItem key={id} id={id} vista={vista} onVista={onVista} />
           ))}
         </div>
       </nav>
@@ -112,14 +133,51 @@ export function Layout({
   )
 }
 
-function NavBtn({ id, vista, onVista }: { id: Vista; vista: Vista; onVista: (v: Vista) => void }) {
+function RailItem({ v, activo, onClick }: { v: (typeof VISTAS)[number]; activo: boolean; onClick: () => void }) {
+  const Icono = v.icono
+  return (
+    <button
+      onClick={onClick}
+      title={v.nombre}
+      aria-current={activo ? 'page' : undefined}
+      className={`relative w-full flex items-center justify-center lg:justify-start gap-3 px-3 py-2.5 rounded-xl text-sm font-semibold transition-colors ${
+        activo ? 'text-white' : 'text-rail-ink/80 hover:text-white hover:bg-white/6'
+      }`}
+    >
+      {activo && (
+        <motion.span layoutId="rail-activo" className="absolute inset-0 rounded-xl bg-white/12" transition={{ type: 'spring', stiffness: 500, damping: 40 }}>
+          <span className="absolute left-0 top-2 bottom-2 w-1 rounded-full bg-accent" />
+        </motion.span>
+      )}
+      <Icono size={19} strokeWidth={activo ? 2.4 : 2} className="relative" />
+      <span className="relative hidden lg:inline">{v.nombre}</span>
+    </button>
+  )
+}
+
+function TabItem({ id, vista, onVista }: { id: Vista; vista: Vista; onVista: (v: Vista) => void }) {
   const v = VISTAS.find((x) => x.id === id)!
   const Icono = v.icono
-  const activo = vista === id || (id === 'cuentas' && vista === 'proyeccion')
+  const activo = vista === id || (id === 'analisis' && vista === 'proyeccion')
   return (
-    <button onClick={() => onVista(id)} className={`flex flex-col items-center gap-0.5 py-2 text-[11px] font-medium ${activo ? 'text-primary' : 'text-muted'}`}>
+    <button
+      onClick={() => onVista(id)}
+      aria-current={activo ? 'page' : undefined}
+      className={`relative flex flex-col items-center justify-center gap-1 text-[11px] font-semibold transition-colors ${activo ? 'text-primary' : 'text-muted'}`}
+    >
+      {activo && <motion.span layoutId="tab-activo" className="absolute top-0 h-[3px] w-8 rounded-b-full bg-primary" transition={{ type: 'spring', stiffness: 500, damping: 38 }} />}
+      <motion.span animate={{ y: activo ? -1 : 0, scale: activo ? 1.08 : 1 }} transition={{ type: 'spring', stiffness: 500, damping: 30 }}>
+        <Icono size={22} strokeWidth={activo ? 2.4 : 2} />
+      </motion.span>
+      {v.corto}
+    </button>
+  )
+}
+
+function IconoHeader({ icono: Icono, label, onClick, activo = false }: { icono: LucideIcon; label: string; onClick: () => void; activo?: boolean }) {
+  return (
+    <button className={`btn btn-icon ${activo ? 'text-primary bg-primary-soft' : 'text-muted'}`} onClick={onClick} aria-label={label} title={label}>
       <Icono size={20} />
-      {id === 'cuentas' ? 'Cuentas' : v.nombre}
     </button>
   )
 }

@@ -12,7 +12,15 @@ Sistema personal de control financiero: gastos, ingresos, cuentas, fondos, presu
 | **Cuentas y fondos** | Saldo actual de cada cuenta (saldo inicial + ingresos − gastos ± transferencias desde la fecha del saldo), distribución del ingreso por fondos, saldo neto del mes y acumulado, y cuánto debe recibir cada cuenta este mes. |
 | **Análisis** | Tendencias de 6/12/24 meses: ingreso vs. gasto con media móvil, gasto apilado por categoría, ranking de categorías, tasa de ahorro mensual y tabla resumen. |
 | **Proyección** | 3 a 24 meses, base = promedio de los últimos 3 meses (o presupuesto) × (1 + inflación)ⁿ, con escenarios de variación de ingreso y recorte de gasto. |
-| **Ajustes** | Categorías y presupuesto, cuentas, fondos (% del ingreso), métodos de pago, ingreso mensual, inflación, tema. Importar el Excel original, exportar a Excel, respaldo y restauración en JSON. |
+| **Importar y exportar** | Descarga en Excel con formato (Resumen, Registro, Movimientos y configuración) o CSV, por período (todo, mes, año o fechas). Plantilla con listas desplegables. Carga de Excel/CSV/JSON arrastrando el archivo, con vista previa, modo Agregar o Reemplazar y opción de deshacer. Respaldo JSON. |
+| **Ajustes** | Categorías con icono y color, presupuesto, cuentas, fondos (% del ingreso), métodos de pago, ingreso mensual, inflación y tema. |
+
+### Interfaz
+
+- Diseño responsive de 320 px a escritorio: barra lateral en escritorio, barra inferior con botón de registro en celular, tablas que se convierten en tarjetas en pantallas chicas.
+- Hojas inferiores que se cierran arrastrando en el celular, avisos con "Deshacer", confirmaciones propias y animaciones que respetan la preferencia de movimiento reducido del sistema.
+- Iconos por categoría, fondo, cuenta y método de pago.
+- Registro rápido: atajos Hoy/Ayer, categorías con lo que queda disponible, y fondo, cuenta y método propuestos según el último gasto de esa categoría. Atajo de teclado **N** en escritorio.
 
 ## Escritorio y celular
 
@@ -49,8 +57,10 @@ Si el repositorio se llama distinto a `control-financiero`, el workflow ya pasa 
 - React 19 + TypeScript + Vite
 - Tailwind CSS 4
 - Recharts (gráficos)
+- Motion (animaciones) y Lucide (iconos)
+- ExcelJS (exportar Excel con formato)
 - Zustand con persistencia (estado y almacenamiento local)
-- SheetJS (importar/exportar Excel)
+- SheetJS (leer Excel y CSV al importar)
 - vite-plugin-pwa (instalable y sin conexión)
 
 ## Modelo de datos
