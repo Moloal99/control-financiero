@@ -4,23 +4,36 @@ Sistema personal de control financiero: gastos, ingresos, cuentas, fondos, presu
 
 ## Qué hace
 
+Una app para ahorrar, no solo para anotar gastos. Separa cuatro cosas:
+
+- **Cuentas**: dónde está tu dinero (BCP, BNB, efectivo). Su saldo debe coincidir con el del banco.
+- **Fondos**: para qué es ese dinero dentro de cada cuenta (Gastos, Compras, Ahorro, Emergencias, una meta). Cada fondo arrastra su saldo de un mes a otro.
+- **Categorías**: en qué gastas. Ahorrar no es un gasto.
+- **Metas**: a dónde quieres llegar, con monto y fecha. Cada meta avanza solo con el saldo de su propio fondo.
+
 | Vista | Contenido |
 | --- | --- |
-| **Panel** | Gasto del mes vs. presupuesto, proyección al cierre, ahorro y tasa de ahorro, ritmo de gasto día a día, gasto por categoría, estado por categoría (En control / En riesgo / Excedido), fondos del mes y lectura rápida. |
-| **Registrar** (botón +) | Gasto, ingreso o transferencia con vista previa del impacto antes de guardar: disponible de la categoría, saldo de la cuenta, saldo del fondo y saldo neto. Al registrar un ingreso muestra cómo se reparte entre fondos. |
-| **Movimientos** | Lista por día con filtros (gastos / ingresos / transferencias, categoría, búsqueda), edición y borrado. |
-| **Cuentas y fondos** | Saldo actual de cada cuenta (saldo inicial + ingresos − gastos ± transferencias desde la fecha del saldo), distribución del ingreso por fondos, saldo neto del mes y acumulado, y cuánto debe recibir cada cuenta este mes. |
-| **Análisis** | Tendencias de 6/12/24 meses: ingreso vs. gasto con media móvil, gasto apilado por categoría, ranking de categorías, tasa de ahorro mensual y tabla resumen. |
-| **Proyección** | 3 a 24 meses, base = promedio de los últimos 3 meses (o presupuesto) × (1 + inflación)ⁿ, con escenarios de variación de ingreso y recorte de gasto. |
-| **Importar y exportar** | Descarga en Excel con formato (Resumen, Registro, Movimientos y configuración) o CSV, por período (todo, mes, año o fechas). Plantilla con listas desplegables. Carga de Excel/CSV/JSON arrastrando el archivo, con vista previa, modo Agregar o Reemplazar y opción de deshacer. Respaldo JSON. |
-| **Ajustes** | Categorías con icono y color, presupuesto, cuentas, fondos (% del ingreso), métodos de pago, ingreso mensual, inflación y tema. |
+| **Inicio** | Cuánto puedes gastar sin tocar tus ahorros (fondos de gasto menos fijos pendientes), por día; metas; avisos; fijos por registrar; presupuesto del mes; ritmo de gasto y patrimonio. |
+| **Registrar** (botón +) | Gasto, ingreso o mover dinero. Un ingreso puede **repartirse entre tus fondos** (con tus % o unos propios solo para ese ingreso) o **no repartirse** e ir a un fondo o quedar sin asignar. Mover sirve para apartar a una meta o transferir entre cuentas. |
+| **Págate primero** | Al registrar un ingreso repartido, propone apartar lo que cada meta necesita este mes. |
+| **Metas** | Avance, cuánto necesitas por mes para llegar a la fecha, cuánto vas ahorrando y cuándo llegarás. Fondo de emergencia con objetivo automático (N meses de gasto promedio). Aportar y retirar. |
+| **Cuentas y fondos** | Saldo de cada cuenta y en qué fondos está repartido, "sin asignar", **ajustar al saldo del banco**, transferencias sugeridas para que cada cuenta tenga el dinero de sus fondos, y movimiento mensual de cada fondo. |
+| **Plan** | Presupuesto por categoría y plan del mes (ingreso, gastos, ahorro, libre); **gastos e ingresos fijos** que se recuerdan o registran solos, con detección de gastos que se repiten; **proyección** de patrimonio, ahorro, cuentas y metas a 6–36 meses con **escenarios** guardados (más ingreso, menos gasto, ahorro extra, compras grandes). |
+| **Análisis** | Tendencias, **patrimonio** mes a mes y **cierre de mes** exportable a Excel. |
+| **Importar y exportar** | Excel con formato o CSV por período; plantilla; carga de Excel/CSV/JSON con vista previa y deshacer; respaldo; volver a los datos de antes de la actualización. |
+| **Ajustes** | Categorías, cuentas (saldo al inicio del día indicado), fondos (tipo, % del ingreso, saldo inicial y su fecha, aporte mensual), métodos, ingreso esperado, inflación y tema. |
 
-### Interfaz
+### Reglas de cálculo
 
-- Diseño responsive de 320 px a escritorio: barra lateral en escritorio, barra inferior con botón de registro en celular, tablas que se convierten en tarjetas en pantallas chicas.
-- Hojas inferiores que se cierran arrastrando en el celular, avisos con "Deshacer", confirmaciones propias y animaciones que respetan la preferencia de movimiento reducido del sistema.
-- Iconos por categoría, fondo, cuenta y método de pago.
-- Registro rápido: atajos Hoy/Ayer, categorías con lo que queda disponible, y fondo, cuenta y método propuestos según el último gasto de esa categoría. Atajo de teclado **N** en escritorio.
+- Saldo de cuenta = saldo inicial + registros desde la fecha del saldo. Lo anterior a esa fecha ya está incluido en el saldo inicial.
+- Saldo de fondo = saldo inicial del fondo + reparto de ingresos + lo que se le aparta − lo que se mueve a otros fondos − gastos.
+- Cada ingreso repartido guarda los porcentajes con que se repartió: cambiar los % de un fondo solo afecta a los ingresos nuevos.
+- Sin asignar = total de cuentas − total de fondos.
+- Proyección: ingresos fijos (o el ingreso de Ajustes) repartidos por fondo, gastos fijos, gasto variable promedio (1 a 3 meses) con inflación, movimientos entre fondos que repites cada mes y aportes planificados.
+
+### Actualización de datos
+
+Al abrir la versión nueva, los datos guardados se migran solos: los gastos en la categoría "Ahorro" pasan a ser aportes al fondo de ahorro y la categoría se elimina. Antes se guarda una copia exacta, que puede restaurarse en **Importar y exportar**.
 
 ## Escritorio y celular
 
@@ -65,17 +78,18 @@ Si el repositorio se llama distinto a `control-financiero`, el workflow ya pasa 
 
 ## Modelo de datos
 
-- **Categoría**: nombre, presupuesto mensual, color.
+- **Categoría**: nombre, presupuesto mensual, color, icono.
 - **Cuenta**: nombre, tipo, saldo inicial y fecha del saldo.
-- **Fondo**: nombre, % del ingreso, cuenta donde vive, si cuenta para el saldo neto.
-- **Gasto**: fecha, categoría, descripción, monto, método de pago, cuenta, fondo.
-- **Movimiento**: ingreso (cuenta destino) o transferencia (origen → destino).
+- **Fondo**: nombre, tipo (para gastar o ahorro), % del ingreso, cuenta donde vive, saldo inicial y su fecha, aporte mensual, meta opcional.
+- **Gasto**: fecha, categoría, descripción, monto, método de pago, cuenta, fondo, fijo de origen.
+- **Movimiento**: ingreso (repartido con sus %, o a un fondo), transferencia (entre cuentas y/o fondos) o ajuste de saldo.
+- **Fijo (recurrente)**: gasto o ingreso mensual o anual, día, fondo y cuenta, si se registra solo.
+- **Escenario**: variación de ingreso, recorte de gasto, ahorro extra y compras planeadas.
 
-Toda la lógica de cálculo está en `src/lib/calc.ts`, con una función por bloque de la hoja original (`resumenMes`, `resumenFondos`, `saldosCuentas`, `distribucionCuentas`, `serieMensual`, `proyeccion`, `impactoGasto`).
+Toda la lógica de cálculo está en `src/lib/calc.ts` (`saldosCuentas`, `resumenFondos`, `puedesGastar`, `progresoMeta`, `ocurrenciasPendientes`, `seriePatrimonio`, `proyectarSaldos`, `cierreMes`, `alertas`). La migración y normalización de datos guardados está en `src/lib/migrar.ts`.
 
 ## Ideas para seguir
 
 - Sincronización entre dispositivos (Supabase / Firebase) manteniendo el modo sin conexión.
-- Gastos recurrentes y recordatorios de pago.
-- Metas de ahorro con fecha objetivo.
+- Ahorro en dólares con tipo de cambio.
 - Empaquetar como app nativa con Capacitor para publicar en Play Store / App Store.

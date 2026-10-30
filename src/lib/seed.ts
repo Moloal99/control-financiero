@@ -1,4 +1,4 @@
-import type { Datos } from '../types'
+import type { Datos, Fondo } from '../types'
 import { hoyISO } from './format'
 
 export const COLORES = [
@@ -6,7 +6,22 @@ export const COLORES = [
   'var(--c6)', 'var(--c7)', 'var(--c8)', 'var(--c9)', 'var(--c10)',
 ]
 
-/** Datos iniciales: replican la configuración de la hoja RegistroGastosMensual.xlsm. */
+/** Valores por defecto de un fondo nuevo. */
+export function fondoNuevo(f: Partial<Fondo> & Pick<Fondo, 'id' | 'nombre'>): Fondo {
+  return {
+    porcentaje: 0,
+    cuentaId: null,
+    enSaldoNeto: true,
+    tipo: 'gasto',
+    saldoInicial: 0,
+    fechaSaldo: '0000-01-01',
+    aporteMensual: 0,
+    meta: null,
+    ...f,
+  }
+}
+
+/** Datos iniciales: replican la configuración de la hoja RegistroGastosMensual.xlsm. El ahorro vive en fondos, no en categorías de gasto. */
 export function datosIniciales(): Datos {
   const hoy = hoyISO()
   return {
@@ -18,7 +33,6 @@ export function datosIniciales(): Datos {
       { id: 'cat-gimnasio', nombre: 'Gimnasio', presupuesto: 500, color: COLORES[3], icono: 'gimnasio' },
       { id: 'cat-amor', nombre: 'Amor', presupuesto: 100, color: COLORES[4], icono: 'amor' },
       { id: 'cat-extras', nombre: 'Extras / Suscripciones', presupuesto: 200, color: COLORES[5], icono: 'suscripciones' },
-      { id: 'cat-ahorro', nombre: 'Ahorro', presupuesto: 2500, color: COLORES[6], icono: 'ahorro' },
     ],
     metodos: [
       { id: 'met-efectivo', nombre: 'Efectivo' },
@@ -33,12 +47,23 @@ export function datosIniciales(): Datos {
       { id: 'cta-efectivo', nombre: 'Efectivo', tipo: 'Efectivo', saldoInicial: 0, fechaSaldo: hoy },
     ],
     fondos: [
-      { id: 'fon-gastos', nombre: 'Gastos', porcentaje: 0.5, cuentaId: 'cta-bnb', enSaldoNeto: true, icono: 'super' },
-      { id: 'fon-compras', nombre: 'Compras', porcentaje: 0.1, cuentaId: 'cta-ganadero', enSaldoNeto: true, icono: 'compras' },
-      { id: 'fon-ahorro', nombre: 'Ahorro', porcentaje: 0.3, cuentaId: 'cta-bcp', enSaldoNeto: true, icono: 'ahorro' },
-      { id: 'fon-emergencias', nombre: 'Emergencias', porcentaje: 0.1, cuentaId: 'cta-bcp', enSaldoNeto: true, icono: 'emergencias' },
+      fondoNuevo({ fechaSaldo: hoy, id: 'fon-gastos', nombre: 'Gastos', porcentaje: 0.5, cuentaId: 'cta-bnb', icono: 'super' }),
+      fondoNuevo({ fechaSaldo: hoy, id: 'fon-compras', nombre: 'Compras', porcentaje: 0.1, cuentaId: 'cta-ganadero', icono: 'compras' }),
+      fondoNuevo({ fechaSaldo: hoy, id: 'fon-ahorro', nombre: 'Ahorro', porcentaje: 0.3, cuentaId: 'cta-bcp', icono: 'ahorro', tipo: 'ahorro' }),
+      fondoNuevo({
+        fechaSaldo: hoy,
+        id: 'fon-emergencias',
+        nombre: 'Emergencias',
+        porcentaje: 0.1,
+        cuentaId: 'cta-bcp',
+        icono: 'emergencias',
+        tipo: 'ahorro',
+        meta: { tipo: 'emergencia', objetivo: 0, meses: 3, fecha: null, creada: hoy },
+      }),
     ],
     gastos: [],
     movimientos: [],
+    recurrentes: [],
+    escenarios: [],
   }
 }
