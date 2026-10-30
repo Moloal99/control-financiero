@@ -1,24 +1,32 @@
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { FileSpreadsheet } from 'lucide-react'
-import { Suspense, lazy, useCallback, useEffect, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
 import { Layout, VISTAS, type Vista } from './components/Layout'
 import { Registrar } from './components/Registrar'
-import { ConfirmDialog, MonthPicker, Segmented, Toaster } from './components/ui'
-import { mesActual } from './lib/format'
+import { Pagate } from './components/Pagate'
+import { ConfirmDialog, Modal, MonthPicker, Toaster } from './components/ui'
+import { ListaAlertas } from './components/Alertas'
+import { alertas as calcularAlertas } from './lib/calc'
+import { toast } from './lib/feedback'
+import { hoyISO, mesActual } from './lib/format'
+import { irA, useUI } from './lib/ui'
+import { Inicio } from './pages/Inicio'
 import { Movimientos } from './pages/Movimientos'
-import { Panel } from './pages/Panel'
 import { useStore } from './store'
-import type { Gasto, Movimiento } from './types'
 
+const Metas = lazy(() => import('./pages/Metas').then((m) => ({ default: m.Metas })))
 const Cuentas = lazy(() => import('./pages/Cuentas').then((m) => ({ default: m.Cuentas })))
+const Plan = lazy(() => import('./pages/Plan').then((m) => ({ default: m.Plan })))
 const Analisis = lazy(() => import('./pages/Analisis').then((m) => ({ default: m.Analisis })))
-const Proyeccion = lazy(() => import('./pages/Proyeccion').then((m) => ({ default: m.Proyeccion })))
 const Datos = lazy(() => import('./pages/Datos').then((m) => ({ default: m.Datos })))
 const Ajustes = lazy(() => import('./pages/Ajustes').then((m) => ({ default: m.Ajustes })))
 
+/** Nombres de vistas de versiones anteriores. */
+const ALIAS: Record<string, Vista> = { panel: 'inicio', proyeccion: 'plan' }
+
 function vistaDesdeHash(): Vista {
-  const h = window.location.hash.replace('#', '') as Vista
-  return VISTAS.some((v) => v.id === h) ? h : 'panel'
+  const h = window.location.hash.replace('#', '')
+  const v = (ALIAS[h] ?? h) as Vista
+  return VISTAS.some((x) => x.id === v) ? v : 'inicio'
 }
 
 function useTema(): boolean {
@@ -39,13 +47,24 @@ function useTema(): boolean {
   return oscuro
 }
 
+const DESCARTADAS = 'control-financiero-alertas-descartadas'
+
+function leerDescartadas(): string[] {
+  try {
+    const x = JSON.parse(localStorage.getItem(DESCARTADAS) ?? '{}') as { mes?: string; ids?: string[] }
+    return x.mes === mesActual() ? (x.ids ?? []) : []
+  } catch {
+    return []
+  }
+}
+
 export default function App() {
   const [vista, setVista] = useState<Vista>(vistaDesdeHash)
   const [mes, setMes] = useState(mesActual)
-  const [registrar, setRegistrar] = useState(false)
-  const [editGasto, setEditGasto] = useState<Gasto | null>(null)
-  const [editMov, setEditMov] = useState<Movimiento | null>(null)
   const oscuro = useTema()
+  const ui = useUI()
+  const s = useStore()
+  const [descartadas, setDescartadas] = useState<string[]>(leerDescartadas)
 
   useEffect(() => {
     const f = () => setVista(vistaDesdeHash())
@@ -53,89 +72,76 @@ export default function App() {
     return () => window.removeEventListener('hashchange', f)
   }, [])
 
+  // Al abrir: registra los recurrentes automáticos vencidos.
+  useEffect(() => {
+    const n = useStore.getState().aplicarRecurrentesAutomaticos(hoyISO())
+    if (n > 0) toast(n === 1 ? 'Se registró 1 movimiento fijo' : `Se registraron ${n} movimientos fijos`, { tono: 'info', detalle: 'Los marcaste para registrarse solos cuando llega la fecha.' })
+  }, [])
+
   // Atajo de teclado: "N" abre el registro rápido.
   useEffect(() => {
     const f = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
-      if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !/input|textarea|select/i.test(t.tagName)) {
+      if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !/input|textarea|select/i.test(t.tagName) && !t.isContentEditable) {
         e.preventDefault()
-        setRegistrar(true)
+        useUI.getState().abrirRegistro()
       }
     }
     window.addEventListener('keydown', f)
     return () => window.removeEventListener('keydown', f)
   }, [])
 
-  const irA = useCallback((v: Vista) => {
-    if (window.location.hash !== `#${v}`) window.location.hash = v
-    setVista(v)
-    window.scrollTo({ top: 0 })
-  }, [])
+  const listaAlertas = useMemo(() => calcularAlertas(s, hoyISO()), [s])
+  const visibles = listaAlertas.filter((a) => !descartadas.includes(a.id))
+  const importantes = visibles.filter((a) => a.tono !== 'info').length
 
-  const cerrar = useCallback(() => {
-    setRegistrar(false)
-    setEditGasto(null)
-    setEditMov(null)
+  const descartar = useCallback((id: string) => {
+    setDescartadas((prev) => {
+      const ids = [...prev, id]
+      try {
+        localStorage.setItem(DESCARTADAS, JSON.stringify({ mes: mesActual(), ids }))
+      } catch {
+        /* sin almacenamiento */
+      }
+      return ids
+    })
   }, [])
 
   const actual = VISTAS.find((v) => v.id === vista)!
-  const conMes = vista !== 'ajustes' && vista !== 'datos'
+  const conMes = ['movimientos', 'cuentas', 'plan', 'analisis'].includes(vista)
 
   return (
     <MotionConfig reducedMotion="user">
-      <Layout vista={vista} onVista={irA} onRegistrar={() => setRegistrar(true)} oscuro={oscuro}>
-        {/* Encabezado de la vista */}
+      <Layout vista={vista} onVista={(v) => irA(v)} onRegistrar={() => ui.abrirRegistro()} onAlertas={() => ui.setAlertas(true)} nAlertas={importantes} oscuro={oscuro}>
         <div className="flex flex-wrap items-center justify-between gap-3 mb-4 md:mb-6">
           <div className="hidden md:block">
             <h1 className="text-[28px] font-extrabold tracking-tight leading-tight">{actual.nombre}</h1>
             <p className="text-sm text-muted">{actual.descripcion}</p>
           </div>
-          {conMes && (
-            <div className="flex items-center gap-2 w-full md:w-auto justify-between md:justify-end">
-              <MonthPicker mes={mes} onChange={setMes} />
-              <button className="btn btn-ghost hidden md:inline-flex !min-h-10" onClick={() => irA('datos')}>
-                <FileSpreadsheet size={17} /> Excel
-              </button>
-            </div>
-          )}
+          {conMes && <MonthPicker mes={mes} onChange={setMes} />}
         </div>
 
-        {(vista === 'analisis' || vista === 'proyeccion') && (
-          <div className="md:hidden mb-4">
-            <Segmented
-              full
-              options={[
-                { id: 'analisis' as const, label: 'Tendencias' },
-                { id: 'proyeccion' as const, label: 'Proyección' },
-              ]}
-              value={vista}
-              onChange={irA}
-            />
-          </div>
-        )}
-
         <AnimatePresence mode="wait" initial={false}>
-          <motion.div
-            key={vista}
-            initial={{ opacity: 0, y: 10 }}
-            animate={{ opacity: 1, y: 0 }}
-            exit={{ opacity: 0, y: -6 }}
-            transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}
-          >
+          <motion.div key={vista} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}>
             <Suspense fallback={<div className="h-64 rounded-[1.25rem] bg-surface-2 animate-pulse" />}>
-              {vista === 'panel' && <Panel mes={mes} oscuro={oscuro} onIrA={irA} onRegistrar={() => setRegistrar(true)} />}
-              {vista === 'movimientos' && <Movimientos mes={mes} onEditarGasto={setEditGasto} onEditarMovimiento={setEditMov} onRegistrar={() => setRegistrar(true)} />}
+              {vista === 'inicio' && <Inicio oscuro={oscuro} alertas={visibles} onDescartar={descartar} />}
+              {vista === 'movimientos' && <Movimientos mes={mes} />}
+              {vista === 'metas' && <Metas />}
               {vista === 'cuentas' && <Cuentas mes={mes} />}
+              {vista === 'plan' && <Plan mes={mes} />}
               {vista === 'analisis' && <Analisis mes={mes} oscuro={oscuro} />}
-              {vista === 'proyeccion' && <Proyeccion mes={mes} />}
               {vista === 'datos' && <Datos mes={mes} />}
-              {vista === 'ajustes' && <Ajustes onIrA={irA} />}
+              {vista === 'ajustes' && <Ajustes />}
             </Suspense>
           </motion.div>
         </AnimatePresence>
       </Layout>
 
-      <Registrar open={registrar || Boolean(editGasto) || Boolean(editMov)} onClose={cerrar} gasto={editGasto} movimiento={editMov} />
+      <Registrar />
+      <Pagate />
+      <Modal open={ui.alertas} onClose={() => ui.setAlertas(false)} title="Avisos">
+        <ListaAlertas alertas={visibles} onDescartar={descartar} onIr={() => ui.setAlertas(false)} />
+      </Modal>
       <ConfirmDialog />
       <Toaster />
     </MotionConfig>

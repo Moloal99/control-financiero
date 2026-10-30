@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'motion/react'
 import {
   ArrowDownLeft, ArrowLeftRight, CalendarRange, CircleAlert, CloudUpload, Database, Download, FileJson, FileSpreadsheet,
-  FileText, LoaderCircle, RotateCcw, ShoppingBag, Sparkles, TriangleAlert, Upload, X,
+  FileText, History, LoaderCircle, RotateCcw, Scale, ShoppingBag, Sparkles, TriangleAlert, Upload, X,
 } from 'lucide-react'
 import { useMemo, useRef, useState, type DragEvent } from 'react'
-import { exportarDatos, useStore } from '../store'
+import { CLAVE_RESPALDO_MIGRACION, exportarDatos, useStore } from '../store'
+import { normalizar } from '../lib/migrar'
 import { confirmar, toast, vibrar } from '../lib/feedback'
 import { fechaCorta, hoyISO, money, nombreMes } from '../lib/format'
 import type { ModoImport, ResultadoImportacion } from '../lib/excel'
@@ -179,13 +180,16 @@ function Importar() {
   }
 
   const aplicar = async () => {
-    if (!resultado) return
+    if (!resultado || !archivo) return
     if (modo === 'reemplazar' && !(await confirmar('¿Reemplazar todos tus datos?', { texto: 'Se borrarán los registros y la configuración actuales y se usarán los del archivo. Podrás deshacerlo justo después.', aceptar: 'Reemplazar', peligro: true }))) return
-    const anterior = exportarDatos(s)
-    s.reemplazarTodo(resultado.datos)
+    // Se vuelve a analizar con los datos de este momento, por si registraste algo mientras revisabas la vista previa.
+    const { analizarArchivo } = await import('../lib/excel')
+    const anterior = exportarDatos(useStore.getState())
+    const final = await analizarArchivo(archivo, anterior, modo)
+    useStore.getState().reemplazarTodo(final.datos)
     vibrar(20)
     toast('Datos importados', {
-      detalle: `${resultado.gastos} gastos y ${resultado.movimientos} movimientos${resultado.duplicados ? `, ${resultado.duplicados} repetidos omitidos` : ''}`,
+      detalle: `${final.gastos} gastos y ${final.movimientos} movimientos${final.duplicados ? `, ${final.duplicados} repetidos omitidos` : ''}`,
       accion: { texto: 'Deshacer', onClick: () => useStore.getState().reemplazarTodo(anterior) },
       duracion: 8000,
     })
@@ -325,7 +329,7 @@ function VistaPrevia({ r, modo }: { r: ResultadoImportacion; modo: ModoImport })
     ...r.fondosNuevos.map((n) => ({ n, t: 'Fondo' })),
     ...r.metodosNuevos.map((n) => ({ n, t: 'Método' })),
   ]
-  const iconoTipo = { Gasto: ShoppingBag, Ingreso: ArrowDownLeft, Transferencia: ArrowLeftRight }
+  const iconoTipo = { Gasto: ShoppingBag, Ingreso: ArrowDownLeft, Transferencia: ArrowLeftRight, Ajuste: Scale }
   return (
     <div className="space-y-3">
       <div className="grid grid-cols-3 gap-2">
@@ -378,6 +382,18 @@ function VistaPrevia({ r, modo }: { r: ResultadoImportacion; modo: ModoImport })
 
       {r.configActualizada.length > 0 && <p className="text-xs text-muted">También se actualiza: {[...new Set(r.configActualizada)].join(', ')}.</p>}
 
+      {modo === 'combinar' && r.cambios.length > 0 && (
+        <div className="rounded-2xl border border-warn/40 bg-warn/8 px-3.5 py-3">
+          <p className="text-xs font-bold text-warn mb-1.5">Cambiará tu configuración actual</p>
+          <ul className="text-xs space-y-0.5 num">
+            {r.cambios.slice(0, 8).map((c) => (
+              <li key={c}>{c}</li>
+            ))}
+            {r.cambios.length > 8 && <li className="text-muted">y {r.cambios.length - 8} cambios más</li>}
+          </ul>
+        </div>
+      )}
+
       {r.avisos.map((a) => (
         <p key={a} className="rounded-xl bg-warn/12 text-warn px-3 py-2 text-xs font-medium flex gap-2">
           <TriangleAlert size={15} className="shrink-0" /> {a}
@@ -406,6 +422,21 @@ function Respaldo() {
     descargar(new Blob([JSON.stringify(exportarDatos(s), null, 2)], { type: 'application/json' }), `respaldo-control-financiero-${hoyISO()}.json`)
     toast('Respaldo descargado', { detalle: 'Para restaurarlo, arrástralo en Cargar datos' })
   }
+  const [previo] = useState<{ guardado: string; datos: unknown } | null>(() => {
+    try {
+      const t = localStorage.getItem(CLAVE_RESPALDO_MIGRACION)
+      return t ? (JSON.parse(t) as { guardado: string; datos: unknown }) : null
+    } catch {
+      return null
+    }
+  })
+  const volverAnterior = async () => {
+    if (!previo) return
+    if (!(await confirmar('¿Volver a tus datos de antes de la actualización?', { texto: `Se reemplazan tus datos actuales por la copia guardada el ${new Date(previo.guardado).toLocaleDateString('es-BO')}, sin convertir el ahorro en aportes. Lo que registraste después se pierde, salvo que deshagas el cambio.`, aceptar: 'Volver a esa copia', peligro: true }))) return
+    const anterior = exportarDatos(s)
+    s.reemplazarTodo(normalizar(previo.datos))
+    toast('Datos restaurados', { tono: 'info', accion: { texto: 'Deshacer', onClick: () => useStore.getState().reemplazarTodo(anterior) }, duracion: 8000 })
+  }
   const restablecer = async () => {
     if (!(await confirmar('¿Borrar todo y empezar de cero?', { texto: 'Se borran todos los gastos, movimientos y la configuración. Te recomendamos descargar un respaldo antes.', aceptar: 'Borrar todo', peligro: true }))) return
     const anterior = exportarDatos(s)
@@ -419,6 +450,11 @@ function Respaldo() {
           Tienes <b className="text-ink num">{total}</b> registros, {s.categorias.length} categorías, {s.cuentas.length} cuentas y {s.fondos.length} fondos.
         </p>
         <div className="flex flex-col sm:flex-row gap-2">
+          {previo && (
+            <button className="btn btn-ghost" onClick={volverAnterior}>
+              <History size={17} /> Datos antes de la actualización
+            </button>
+          )}
           <button className="btn btn-ghost" onClick={respaldo}>
             <FileJson size={17} /> Descargar respaldo
           </button>

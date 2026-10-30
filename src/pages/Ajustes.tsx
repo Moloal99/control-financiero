@@ -4,13 +4,15 @@ import { useState } from 'react'
 import { useStore } from '../store'
 import { COLORES } from '../lib/seed'
 import { confirmar, toast } from '../lib/feedback'
-import { hoyISO, money, num, pct, uid } from '../lib/format'
+import { hoyISO, money, pct, uid } from '../lib/format'
 import { ICONOS, ICONO_CUENTA, iconoDe, iconoMetodo, sugerirIcono } from '../lib/iconos'
 import type { Categoria, Datos, Fondo, TipoCuenta } from '../types'
-import type { Vista } from '../components/Layout'
-import { Card, Field, IconBadge, Modal, Segmented } from '../components/ui'
+import { irA } from '../lib/ui'
+import { fondoNuevo } from '../lib/seed'
+import { CampoNumero, Card, Field, IconBadge, Modal, Segmented } from '../components/ui'
 
-export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
+export function Ajustes() {
+  const onIrA = irA
   const s = useStore()
   const totalPct = s.fondos.reduce((a, f) => a + f.porcentaje, 0)
   const totalPresupuesto = s.categorias.reduce((a, c) => a + c.presupuesto, 0)
@@ -29,10 +31,10 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
       <Card icon={SlidersHorizontal} title="Preferencias" subtitle="Ingreso de referencia, supuestos de proyección y apariencia">
         <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-4">
           <Field label="Ingreso mensual (Bs)" hint="Se usa en los meses sin ingresos registrados">
-            <input className="input num" inputMode="decimal" value={s.ajustes.ingresoMensual} onChange={(e) => s.setAjustes({ ingresoMensual: num(e.target.value) })} />
+            <CampoNumero valor={s.ajustes.ingresoMensual} onValor={(n) => s.setAjustes({ ingresoMensual: n })} />
           </Field>
           <Field label="Inflación mensual estimada (%)" hint="Para las proyecciones">
-            <input className="input num" inputMode="decimal" defaultValue={(s.ajustes.inflacionMensual * 100).toFixed(2)} onBlur={(e) => s.setAjustes({ inflacionMensual: num(e.target.value) / 100 })} />
+            <CampoNumero valor={s.ajustes.inflacionMensual * 100} onValor={(n) => s.setAjustes({ inflacionMensual: n / 100 })} />
           </Field>
           <Field label="Tema" className="sm:col-span-2 lg:col-span-1" grupo>
             <Segmented
@@ -72,7 +74,7 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
                 <input className="input flex-1 min-w-0" value={c.nombre} onChange={(e) => s.guardarCategoria({ ...c, nombre: e.target.value })} aria-label="Nombre de la categoría" />
                 <div className="relative w-28 sm:w-36 shrink-0">
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none">Bs</span>
-                  <input className="input !pl-9 text-right num" inputMode="decimal" value={c.presupuesto} onChange={(e) => s.guardarCategoria({ ...c, presupuesto: num(e.target.value) })} aria-label="Presupuesto mensual" />
+                  <CampoNumero className="!pl-9 text-right" valor={c.presupuesto} onValor={(n) => s.guardarCategoria({ ...c, presupuesto: n })} aria-label="Presupuesto mensual" />
                 </div>
                 <button className="btn btn-icon text-muted hover:!text-bad shrink-0" onClick={() => eliminar('la categoría', `Los gastos de "${c.nombre}" quedarán sin categoría.`, () => s.eliminarCategoria(c.id))} aria-label="Eliminar categoría">
                   <Trash2 size={17} />
@@ -87,7 +89,7 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
         <Card
           icon={Landmark}
           title="Cuentas"
-          subtitle="Saldo inicial y la fecha a la que corresponde"
+          subtitle="Saldo al inicio del día indicado, antes de los registros de ese día. Lo anterior a esa fecha no cambia el saldo."
           action={
             <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => s.guardarCuenta({ id: uid(), nombre: 'Nueva cuenta', tipo: 'Banco', saldoInicial: 0, fechaSaldo: hoyISO() })}>
               <Plus size={16} /> Agregar
@@ -110,7 +112,7 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
                       <option key={t}>{t}</option>
                     ))}
                   </select>
-                  <input className="input !min-h-10 text-sm text-right num" inputMode="decimal" value={c.saldoInicial} onChange={(e) => s.guardarCuenta({ ...c, saldoInicial: num(e.target.value) })} aria-label="Saldo inicial" />
+                  <CampoNumero className="!min-h-10 text-sm text-right" valor={c.saldoInicial} onValor={(n) => s.guardarCuenta({ ...c, saldoInicial: n })} aria-label="Saldo inicial" />
                   <input className="input !min-h-10 text-sm col-span-2 sm:col-span-1" type="date" value={c.fechaSaldo} onChange={(e) => s.guardarCuenta({ ...c, fechaSaldo: e.target.value })} aria-label="Fecha del saldo" />
                 </div>
               </li>
@@ -121,9 +123,9 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
         <Card
           icon={Wallet}
           title="Fondos"
-          subtitle="Cómo se reparte cada ingreso"
+          subtitle="Para qué es tu dinero y cómo se reparte cada ingreso. El saldo de cada fondo pasa de un mes a otro."
           action={
-            <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => s.guardarFondo({ id: uid(), nombre: 'Nuevo fondo', porcentaje: 0, cuentaId: null, enSaldoNeto: true, icono: 'metas' })}>
+            <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => s.guardarFondo(fondoNuevo({ id: uid(), nombre: 'Nuevo fondo', icono: 'metas', cuentaId: s.cuentas[0]?.id ?? null, fechaSaldo: hoyISO() }))}>
               <Plus size={16} /> Agregar
             </button>
           }
@@ -138,6 +140,7 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
             {pctOk ? <CircleCheck size={14} /> : <TriangleAlert size={14} />}
             {pctOk ? 'El reparto suma 100%' : `El reparto suma ${pct(totalPct, 1)}; debe sumar 100%`}
           </p>
+          <p className="text-xs text-muted -mt-2 mb-3">Cambiar los porcentajes solo afecta a los ingresos nuevos.</p>
           <ul className="space-y-3">
             {s.fondos.map((f, i) => (
               <li key={f.id} className="rounded-2xl border border-line p-3">
@@ -147,15 +150,25 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
                   </button>
                   <input className="input flex-1 min-w-0 !min-h-10 font-semibold" value={f.nombre} onChange={(e) => s.guardarFondo({ ...f, nombre: e.target.value })} aria-label="Nombre del fondo" />
                   <div className="relative w-24 shrink-0">
-                    <input className="input !min-h-10 text-right num !pr-7" inputMode="decimal" value={Math.round(f.porcentaje * 1000) / 10} onChange={(e) => s.guardarFondo({ ...f, porcentaje: num(e.target.value) / 100 })} aria-label="Porcentaje del ingreso" />
+                    <CampoNumero className="!min-h-10 text-right !pr-7" valor={Math.round(f.porcentaje * 100000) / 1000} onValor={(n) => s.guardarFondo({ ...f, porcentaje: n / 100 })} aria-label="Porcentaje del ingreso" />
                     <span className="absolute right-3 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none">%</span>
                   </div>
                   <button className="btn btn-icon text-muted hover:!text-bad" onClick={() => eliminar('el fondo', `Los gastos de "${f.nombre}" quedarán sin fondo.`, () => s.eliminarFondo(f.id))} aria-label="Eliminar fondo">
                     <Trash2 size={17} />
                   </button>
                 </div>
-                <div className="flex flex-wrap items-center gap-3 mt-2">
-                  <select className="input !min-h-10 text-sm flex-1 min-w-36" value={f.cuentaId ?? ''} onChange={(e) => s.guardarFondo({ ...f, cuentaId: e.target.value || null })} aria-label="Cuenta del fondo">
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                  <Segmented
+                    full
+                    size="sm"
+                    value={f.tipo}
+                    onChange={(t: Fondo['tipo']) => s.guardarFondo({ ...f, tipo: t })}
+                    options={[
+                      { id: 'gasto', label: 'Para gastar' },
+                      { id: 'ahorro', label: 'Ahorro' },
+                    ]}
+                  />
+                  <select className="input !min-h-10 text-sm" value={f.cuentaId ?? ''} onChange={(e) => s.guardarFondo({ ...f, cuentaId: e.target.value || null })} aria-label="Cuenta del fondo">
                     <option value="">Sin cuenta</option>
                     {s.cuentas.map((c) => (
                       <option key={c.id} value={c.id}>
@@ -163,10 +176,21 @@ export function Ajustes({ onIrA }: { onIrA: (v: Vista) => void }) {
                       </option>
                     ))}
                   </select>
-                  <label className="text-[13px] flex items-center gap-2 cursor-pointer select-none">
-                    <input type="checkbox" checked={f.enSaldoNeto} onChange={(e) => s.guardarFondo({ ...f, enSaldoNeto: e.target.checked })} /> Cuenta en el saldo neto
+                  <div className="block sm:col-span-2">
+                    <span className="block text-[11px] font-semibold text-muted mb-1">Saldo inicial y su fecha</span>
+                    <div className="flex gap-1.5">
+                      <CampoNumero className="!min-h-10 text-sm text-right flex-1 min-w-0" valor={f.saldoInicial} onValor={(n) => s.guardarFondo({ ...f, saldoInicial: n })} aria-label="Saldo inicial del fondo" />
+                      <input className="input !min-h-10 text-sm !w-[9.5rem] shrink-0" type="date" value={f.fechaSaldo > '1900' ? f.fechaSaldo : ''} onChange={(e) => s.guardarFondo({ ...f, fechaSaldo: e.target.value || '0000-01-01' })} aria-label="Fecha del saldo del fondo" />
+                    </div>
+                  </div>
+                  <label className="block sm:col-span-2">
+                    <span className="block text-[11px] font-semibold text-muted mb-1">Aporte fijo al mes</span>
+                    <CampoNumero className="!min-h-10 text-sm text-right" valor={f.aporteMensual} onValor={(n) => s.guardarFondo({ ...f, aporteMensual: n })} aria-label="Aporte mensual planificado" />
                   </label>
                 </div>
+                <label className="text-[13px] flex items-center gap-2 cursor-pointer select-none mt-2.5">
+                  <input type="checkbox" checked={f.enSaldoNeto} onChange={(e) => s.guardarFondo({ ...f, enSaldoNeto: e.target.checked })} /> Cuenta en el saldo neto
+                </label>
               </li>
             ))}
           </ul>

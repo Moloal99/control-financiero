@@ -59,6 +59,8 @@ export function uid(): string {
 export function num(v: string | number): number {
   if (typeof v === 'number') return v
   const s = v.replace(/\s/g, '').replace(/[^\d,.-]/g, '')
+  // "10.000" o "1.500.000" (punto de miles, sin decimales) en formato boliviano.
+  if (/^-?\d{1,3}(\.\d{3})+$/.test(s)) return parseFloat(s.replace(/\./g, '')) || 0
   // Acepta "1.500,50" y "1500.50"
   if (s.includes(',') && s.lastIndexOf(',') > s.lastIndexOf('.')) {
     return parseFloat(s.replace(/\./g, '').replace(',', '.')) || 0

@@ -1,5 +1,5 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowDownLeft, ArrowLeftRight, Download, Inbox, Layers, Plus, Search, ShoppingBag, Trash2, X } from 'lucide-react'
+import { ArrowDownLeft, ArrowLeftRight, Download, Inbox, Layers, PiggyBank, Plus, Scale, Search, ShoppingBag, Trash2, X } from 'lucide-react'
 import { useMemo, useState, type ReactNode } from 'react'
 import { useStore } from '../store'
 import { confirmar, toast } from '../lib/feedback'
@@ -7,6 +7,7 @@ import { fechaLarga, mesDe, money, nombreMes } from '../lib/format'
 import { iconoDe } from '../lib/iconos'
 import type { Gasto, Movimiento } from '../types'
 import { Card, Empty, IconBadge, Segmented } from '../components/ui'
+import { useUI } from '../lib/ui'
 
 type Filtro = 'todos' | 'gastos' | 'ingresos' | 'transferencias'
 
@@ -14,18 +15,12 @@ type Item =
   | { kind: 'gasto'; fecha: string; id: string; g: Gasto }
   | { kind: 'mov'; fecha: string; id: string; m: Movimiento }
 
-export function Movimientos({
-  mes,
-  onEditarGasto,
-  onEditarMovimiento,
-  onRegistrar,
-}: {
-  mes: string
-  onEditarGasto: (g: Gasto) => void
-  onEditarMovimiento: (m: Movimiento) => void
-  onRegistrar: () => void
-}) {
+export function Movimientos({ mes }: { mes: string }) {
   const s = useStore()
+  const abrir = useUI((u) => u.abrirRegistro)
+  const onEditarGasto = (g: Gasto) => abrir({ gasto: g })
+  const onEditarMovimiento = (m: Movimiento) => abrir({ movimiento: m })
+  const onRegistrar = () => abrir()
   const [filtro, setFiltro] = useState<Filtro>('todos')
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
@@ -47,7 +42,7 @@ export function Movimientos({
         if (mesDe(m.fecha) !== mes) continue
         if (cat) continue
         if (filtro === 'ingresos' && m.tipo !== 'ingreso') continue
-        if (filtro === 'transferencias' && m.tipo !== 'transferencia') continue
+        if (filtro === 'transferencias' && m.tipo === 'ingreso') continue
         if (ql && !m.descripcion.toLowerCase().includes(ql)) continue
         out.push({ kind: 'mov', fecha: m.fecha, id: m.id, m })
       }
@@ -105,8 +100,8 @@ export function Movimientos({
                 id: 'transferencias',
                 label: (
                   <>
-                    <span className="sm:hidden">Transf.</span>
-                    <span className="hidden sm:inline">Transferencias</span>
+                    <span className="sm:hidden">Movido</span>
+                    <span className="hidden sm:inline">Apartado y movido</span>
                   </>
                 ),
                 icon: ArrowLeftRight,
@@ -255,18 +250,51 @@ function FilaGasto({ it, onEditar, onEliminar, nombre }: { it: Extract<Item, { k
 function FilaMov({ it, onEditar, onEliminar, nombre }: { it: Extract<Item, { kind: 'mov' }>; onEditar: () => void; onEliminar: () => void; nombre: Nombre }) {
   const s = useStore()
   const mon = s.ajustes.moneda
-  const ing = it.m.tipo === 'ingreso'
+  const m = it.m
+  const fondo = (id: string | null | undefined) => (id ? (s.fondos.find((f) => f.id === id)?.nombre ?? '—') : 'Sin asignar')
+  let icono = ArrowLeftRight
+  let color = 'var(--muted)'
+  let titulo = m.descripcion
+  let detalle = ''
+  let signo = ''
+  let cls = ''
+  if (m.tipo === 'ingreso') {
+    icono = ArrowDownLeft
+    color = 'var(--ok)'
+    titulo ||= 'Ingreso'
+    detalle = `A ${nombre(s.cuentas, m.cuentaDestinoId)}, ${m.distribuir === false ? (m.fondoDestinoId ? `para ${fondo(m.fondoDestinoId)}` : 'sin repartir') : 'repartido en fondos'}`
+    signo = '+'
+    cls = 'text-ok'
+  } else if (m.tipo === 'ajuste') {
+    icono = Scale
+    color = 'var(--warn)'
+    titulo ||= 'Ajuste de saldo'
+    detalle = `Ajuste en ${nombre(s.cuentas, m.cuentaDestinoId)}`
+    signo = m.monto > 0 ? '+' : ''
+  } else {
+    const mismaCuenta = m.cuentaOrigenId === m.cuentaDestinoId
+    const meta = s.fondos.find((f) => f.id === m.fondoDestinoId)
+    if (mismaCuenta) {
+      icono = PiggyBank
+      color = meta?.tipo === 'ahorro' ? 'var(--ok)' : 'var(--primary)'
+      titulo ||= 'Apartado'
+      detalle = `${fondo(m.fondoOrigenId)} a ${fondo(m.fondoDestinoId)}, en ${nombre(s.cuentas, m.cuentaOrigenId)}`
+    } else {
+      titulo ||= 'Transferencia'
+      detalle = `${nombre(s.cuentas, m.cuentaOrigenId)} a ${nombre(s.cuentas, m.cuentaDestinoId)}${m.fondoOrigenId !== m.fondoDestinoId ? `, de ${fondo(m.fondoOrigenId)} a ${fondo(m.fondoDestinoId)}` : ''}`
+    }
+  }
   return (
     <div className="group flex items-center gap-3 px-4 py-3 hover:bg-surface-2/70 transition-colors">
       <button className="flex items-center gap-3 flex-1 min-w-0 text-left" onClick={onEditar} aria-label="Editar registro">
-        <IconBadge icon={ing ? ArrowDownLeft : ArrowLeftRight} color={ing ? 'var(--ok)' : 'var(--muted)'} />
+        <IconBadge icon={icono} color={color} />
         <div className="flex-1 min-w-0">
-          <p className="font-semibold truncate">{it.m.descripcion || (ing ? 'Ingreso' : 'Transferencia')}</p>
-          <p className="text-xs text-muted truncate">{ing ? `Ingreso a ${nombre(s.cuentas, it.m.cuentaDestinoId)}` : `${nombre(s.cuentas, it.m.cuentaOrigenId)} a ${nombre(s.cuentas, it.m.cuentaDestinoId)}`}</p>
+          <p className="font-semibold truncate">{titulo}</p>
+          <p className="text-xs text-muted truncate">{detalle}</p>
         </div>
-        <span className={`num font-bold shrink-0 ${ing ? 'text-ok' : ''}`}>
-          {ing ? '+' : ''}
-          {money(it.m.monto, mon)}
+        <span className={`num font-bold shrink-0 ${cls}`}>
+          {signo}
+          {money(m.monto, mon)}
         </span>
       </button>
       <BotonEliminar onClick={onEliminar} />

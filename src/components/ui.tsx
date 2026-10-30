@@ -1,8 +1,8 @@
 import { AnimatePresence, animate, motion, useDragControls, useReducedMotion, type DragControls, type PanInfo } from 'motion/react'
 import { CircleAlert, CircleCheck, ChevronLeft, ChevronRight, Info, TriangleAlert, X, type LucideIcon } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type ReactNode } from 'react'
+import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react'
 import type { Estado } from '../types'
-import { mesActual, nombreMes } from '../lib/format'
+import { mesActual, nombreMes, num } from '../lib/format'
 import { mesMas } from '../lib/calc'
 import { useFeedback, type TonoToast } from '../lib/feedback'
 
@@ -503,5 +503,116 @@ export function ConfirmDialog() {
         </div>
       )}
     </Modal>
+  )
+}
+
+/* ───────────────────────── Interruptor ───────────────────────── */
+
+export function Switch({ checked, onChange, label, descripcion, id }: { checked: boolean; onChange: (v: boolean) => void; label: ReactNode; descripcion?: ReactNode; id?: string }) {
+  const auto = useId()
+  const sid = id ?? auto
+  return (
+    <div className="flex items-start justify-between gap-4">
+      <label htmlFor={sid} className="min-w-0 cursor-pointer">
+        <span className="block text-sm font-semibold">{label}</span>
+        {descripcion && <span className="block text-xs text-muted mt-0.5 leading-snug">{descripcion}</span>}
+      </label>
+      <button
+        id={sid}
+        type="button"
+        role="switch"
+        aria-checked={checked}
+        onClick={() => onChange(!checked)}
+        className={`relative shrink-0 h-7 w-12 rounded-full transition-colors ${checked ? 'bg-primary' : 'bg-surface-3'}`}
+      >
+        <motion.span
+          className="absolute top-1 left-1 h-5 w-5 rounded-full bg-white shadow"
+          animate={{ x: checked ? 20 : 0 }}
+          transition={{ type: 'spring', stiffness: 600, damping: 35 }}
+        />
+      </button>
+    </div>
+  )
+}
+
+/* ───────────────────────── Progreso de metas ───────────────────────── */
+
+/** Anillo de progreso (0–1) con contenido al centro. */
+export function Anillo({ pct, color = 'var(--primary)', size = 64, grosor = 7, children }: { pct: number; color?: string; size?: number; grosor?: number; children?: ReactNode }) {
+  const r = (size - grosor) / 2
+  const c = 2 * Math.PI * r
+  const v = Math.max(0, Math.min(1, pct))
+  return (
+    <div className="relative shrink-0" style={{ width: size, height: size }}>
+      <svg width={size} height={size} viewBox={`0 0 ${size} ${size}`} className="-rotate-90">
+        <circle cx={size / 2} cy={size / 2} r={r} fill="none" stroke="var(--surface-3)" strokeWidth={grosor} />
+        <motion.circle
+          cx={size / 2}
+          cy={size / 2}
+          r={r}
+          fill="none"
+          stroke={color}
+          strokeWidth={grosor}
+          strokeLinecap="round"
+          strokeDasharray={c}
+          initial={{ strokeDashoffset: c }}
+          animate={{ strokeDashoffset: c * (1 - v) }}
+          transition={{ duration: 1, ease }}
+        />
+      </svg>
+      <div className="absolute inset-0 grid place-items-center text-center">{children}</div>
+    </div>
+  )
+}
+
+/** Barra con marcas en 25 %, 50 % y 75 %. */
+export function BarraHitos({ pct, color = 'var(--primary)', marca }: { pct: number; color?: string; marca?: number | null }) {
+  const v = Math.max(0, Math.min(1, pct))
+  return (
+    <div className="relative h-3 rounded-full bg-surface-3/70">
+      <motion.div className="absolute inset-y-0 left-0 rounded-full" style={{ background: color }} initial={{ width: 0 }} animate={{ width: `${v * 100}%` }} transition={{ duration: 0.9, ease }} />
+      {[0.25, 0.5, 0.75].map((h) => (
+        <span key={h} className={`absolute top-1/2 -translate-y-1/2 h-1.5 w-1.5 -ml-[3px] rounded-full ${v >= h ? 'bg-white/80' : 'bg-muted/40'}`} style={{ left: `${h * 100}%` }} />
+      ))}
+      {marca !== undefined && marca !== null && marca > 0 && marca < 1 && (
+        <span className="absolute -top-1 -bottom-1 w-0.5 rounded-full bg-ink/70" style={{ left: `${marca * 100}%` }} title="Donde deberías ir hoy" />
+      )}
+    </div>
+  )
+}
+
+/* ───────────────────────── Campo numérico ───────────────────────── */
+
+/**
+ * Campo de número que conserva lo que escribes (por ejemplo "1500," mientras tecleas decimales)
+ * y guarda el valor numérico en cada cambio. Al salir del campo se muestra el valor guardado.
+ */
+export function CampoNumero({
+  valor,
+  onValor,
+  className = '',
+  ...rest
+}: { valor: number; onValor: (n: number) => void } & Omit<InputHTMLAttributes<HTMLInputElement>, 'value' | 'onChange' | 'type'>) {
+  const [texto, setTexto] = useState<string | null>(null)
+  const mostrado = texto ?? (Number.isFinite(valor) ? String(Math.round(valor * 100) / 100).replace('.', ',') : '')
+  return (
+    <input
+      {...rest}
+      className={`input num ${className}`}
+      inputMode="decimal"
+      value={mostrado}
+      onFocus={(e) => {
+        setTexto(mostrado)
+        rest.onFocus?.(e)
+      }}
+      onChange={(e) => {
+        setTexto(e.target.value)
+        onValor(num(e.target.value))
+      }}
+      onBlur={(e) => {
+        setTexto(null)
+        rest.onBlur?.(e)
+      }}
+    />
   )
 }
