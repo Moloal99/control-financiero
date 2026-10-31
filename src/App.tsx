@@ -1,9 +1,9 @@
 import { AnimatePresence, MotionConfig, motion } from 'motion/react'
-import { Suspense, lazy, useCallback, useEffect, useMemo, useState } from 'react'
+import { Suspense, lazy, useCallback, useEffect, useMemo, useRef, useState } from 'react'
 import { Layout, VISTAS, type Vista } from './components/Layout'
 import { Registrar } from './components/Registrar'
 import { Pagate } from './components/Pagate'
-import { ConfirmDialog, Modal, MonthPicker, Toaster } from './components/ui'
+import { ConfirmDialog, Modal, MonthPicker, Toaster, hayModalAbierto } from './components/ui'
 import { ListaAlertas } from './components/Alertas'
 import { alertas as calcularAlertas } from './lib/calc'
 import { toast } from './lib/feedback'
@@ -11,7 +11,7 @@ import { hoyISO, mesActual } from './lib/format'
 import { irA, useUI } from './lib/ui'
 import { Inicio } from './pages/Inicio'
 import { Movimientos } from './pages/Movimientos'
-import { useStore } from './store'
+import { CLAVE_DATOS, useStore } from './store'
 
 const Metas = lazy(() => import('./pages/Metas').then((m) => ({ default: m.Metas })))
 const Cuentas = lazy(() => import('./pages/Cuentas').then((m) => ({ default: m.Cuentas })))
@@ -72,17 +72,45 @@ export default function App() {
     return () => window.removeEventListener('hashchange', f)
   }, [])
 
-  // Al abrir: registra los recurrentes automáticos vencidos.
+  // Al abrir (y al volver a la app otro día): registra los fijos automáticos vencidos.
+  const diaRef = useRef(hoyISO())
+  const [dia, setDia] = useState(hoyISO)
   useEffect(() => {
-    const n = useStore.getState().aplicarRecurrentesAutomaticos(hoyISO())
-    if (n > 0) toast(n === 1 ? 'Se registró 1 movimiento fijo' : `Se registraron ${n} movimientos fijos`, { tono: 'info', detalle: 'Los marcaste para registrarse solos cuando llega la fecha.' })
+    const aplicar = () => {
+      const n = useStore.getState().aplicarRecurrentesAutomaticos(hoyISO())
+      if (n > 0) toast(n === 1 ? 'Se registró 1 movimiento fijo' : `Se registraron ${n} movimientos fijos`, { tono: 'info', detalle: 'Los marcaste para registrarse solos cuando llega la fecha.' })
+    }
+    aplicar()
+    // Si la app queda abierta y cambia el día o el mes, se actualiza todo lo que depende de "hoy".
+    const revisar = () => {
+      if (document.visibilityState !== 'visible') return
+      const hoy = hoyISO()
+      const antes = diaRef.current
+      if (hoy === antes) return
+      diaRef.current = hoy
+      setMes((m) => (m === antes.slice(0, 7) ? hoy.slice(0, 7) : m))
+      setDia(hoy)
+      aplicar()
+    }
+    document.addEventListener('visibilitychange', revisar)
+    const t = window.setInterval(revisar, 60_000)
+    // Cambios guardados desde otra pestaña: se recargan para no pisarlos.
+    const otraPestana = (e: StorageEvent) => {
+      if (e.key === CLAVE_DATOS) void useStore.persist.rehydrate()
+    }
+    window.addEventListener('storage', otraPestana)
+    return () => {
+      document.removeEventListener('visibilitychange', revisar)
+      window.clearInterval(t)
+      window.removeEventListener('storage', otraPestana)
+    }
   }, [])
 
   // Atajo de teclado: "N" abre el registro rápido.
   useEffect(() => {
     const f = (e: KeyboardEvent) => {
       const t = e.target as HTMLElement
-      if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !/input|textarea|select/i.test(t.tagName) && !t.isContentEditable) {
+      if (e.key.toLowerCase() === 'n' && !e.metaKey && !e.ctrlKey && !e.altKey && !/input|textarea|select/i.test(t.tagName) && !t.isContentEditable && !hayModalAbierto()) {
         e.preventDefault()
         useUI.getState().abrirRegistro()
       }
@@ -91,7 +119,7 @@ export default function App() {
     return () => window.removeEventListener('keydown', f)
   }, [])
 
-  const listaAlertas = useMemo(() => calcularAlertas(s, hoyISO()), [s])
+  const listaAlertas = useMemo(() => calcularAlertas(s, dia), [s, dia])
   const visibles = listaAlertas.filter((a) => !descartadas.includes(a.id))
   const importantes = visibles.filter((a) => a.tono !== 'info').length
 
@@ -108,7 +136,7 @@ export default function App() {
   }, [])
 
   const actual = VISTAS.find((v) => v.id === vista)!
-  const conMes = ['movimientos', 'cuentas', 'plan', 'analisis'].includes(vista)
+  const conMes = ['movimientos', 'cuentas', 'plan', 'analisis', 'datos'].includes(vista)
 
   return (
     <MotionConfig reducedMotion="user">

@@ -1,10 +1,11 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { Check, CircleCheck, CreditCard, FileSpreadsheet, Monitor, Moon, Plus, SlidersHorizontal, Sun, Tags, TriangleAlert, Trash2, Wallet, Landmark } from 'lucide-react'
-import { useState } from 'react'
+import { useMemo, useState } from 'react'
 import { useStore } from '../store'
-import { COLORES } from '../lib/seed'
+import { COLORES, DESDE_SIEMPRE } from '../lib/seed'
 import { confirmar, toast } from '../lib/feedback'
-import { hoyISO, money, pct, uid } from '../lib/format'
+import { fechaCorta, hoyISO, money, pct, uid } from '../lib/format'
+import { saldosCuentas } from '../lib/calc'
 import { ICONOS, ICONO_CUENTA, iconoDe, iconoMetodo, sugerirIcono } from '../lib/iconos'
 import type { Categoria, Datos, Fondo, TipoCuenta } from '../types'
 import { irA } from '../lib/ui'
@@ -14,15 +15,39 @@ import { CampoNumero, Card, Field, IconBadge, Modal, Segmented } from '../compon
 export function Ajustes() {
   const onIrA = irA
   const s = useStore()
-  const totalPct = s.fondos.reduce((a, f) => a + f.porcentaje, 0)
+  const totalPct = s.fondos.filter((f) => !f.archivado).reduce((a, f) => a + f.porcentaje, 0)
   const totalPresupuesto = s.categorias.reduce((a, c) => a + c.presupuesto, 0)
   const pctOk = Math.abs(totalPct - 1) < 0.0001
   const [editIcono, setEditIcono] = useState<{ tipo: 'cat'; item: Categoria } | { tipo: 'fon'; item: Fondo } | null>(null)
+  const [mover, setMover] = useState<{ tipo: 'cuenta' | 'categoria'; id: string } | null>(null)
+  const [abiertos, setAbiertos] = useState<Record<string, boolean>>({})
+  const saldos = useMemo(() => saldosCuentas(s), [s])
+
+  const eliminarCuenta = (id: string) => {
+    const c = s.cuentas.find((x) => x.id === id)
+    const sc = saldos.find((x) => x.cuenta.id === id)
+    const enUso = Math.abs(sc?.saldoActual ?? 0) > 0.005 || s.fondos.some((f) => f.cuentaId === id) || s.gastos.some((g) => g.cuentaId === id) || s.movimientos.some((m) => m.cuentaOrigenId === id || m.cuentaDestinoId === id)
+    if (enUso && s.cuentas.length > 1) setMover({ tipo: 'cuenta', id })
+    else void eliminar('la cuenta', `"${c?.nombre}" no tiene saldo ni registros.`, () => s.eliminarCuenta(id))
+  }
+  const eliminarCategoria = (id: string) => {
+    const c = s.categorias.find((x) => x.id === id)
+    const usada = s.gastos.some((g) => g.categoriaId === id) || s.recurrentes.some((r) => r.categoriaId === id)
+    if (usada && s.categorias.length > 1) setMover({ tipo: 'categoria', id })
+    else void eliminar('la categoría', `"${c?.nombre}" no tiene gastos.`, () => s.eliminarCategoria(id))
+  }
+  /**
+   * Al poner un saldo inicial a una cuenta o fondo que empezaba "desde siempre", se toma como el saldo que tenía
+   * antes de su primer registro (así los registros ya hechos siguen contando). Sin registros, es el saldo de hoy.
+   */
+  const fechaParaSaldo = (fechaSaldo: string, n: number, fechas: string[]) => (n !== 0 && fechaSaldo < '1900' ? (fechas.filter(Boolean).sort()[0] ?? hoyISO()) : fechaSaldo)
+  const fechasCuenta = (id: string) => [...s.gastos.filter((g) => g.cuentaId === id).map((g) => g.fecha), ...s.movimientos.filter((m) => m.cuentaOrigenId === id || m.cuentaDestinoId === id).map((m) => m.fecha)]
+  const fechasFondo = (id: string) => [...s.gastos.filter((g) => g.fondoId === id).map((g) => g.fecha), ...s.movimientos.filter((m) => m.fondoOrigenId === id || m.fondoDestinoId === id || (m.tipo === 'ingreso' && m.distribuir !== false)).map((m) => m.fecha)]
 
   const eliminar = async (que: string, texto: string, accion: () => void) => {
     if (await confirmar(`¿Eliminar ${que}?`, { texto, aceptar: 'Eliminar', peligro: true })) {
       accion()
-      toast(`${que.charAt(0).toUpperCase()}${que.slice(1)} eliminado`, { tono: 'info' })
+      toast(`Se eliminó ${que}`, { tono: "info" })
     }
   }
 
@@ -76,7 +101,7 @@ export function Ajustes() {
                   <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none">Bs</span>
                   <CampoNumero className="!pl-9 text-right" valor={c.presupuesto} onValor={(n) => s.guardarCategoria({ ...c, presupuesto: n })} aria-label="Presupuesto mensual" />
                 </div>
-                <button className="btn btn-icon text-muted hover:!text-bad shrink-0" onClick={() => eliminar('la categoría', `Los gastos de "${c.nombre}" quedarán sin categoría.`, () => s.eliminarCategoria(c.id))} aria-label="Eliminar categoría">
+                <button className="btn btn-icon text-muted hover:!text-bad shrink-0" onClick={() => eliminarCategoria(c.id)} aria-label="Eliminar categoría">
                   <Trash2 size={17} />
                 </button>
               </motion.li>
@@ -89,9 +114,9 @@ export function Ajustes() {
         <Card
           icon={Landmark}
           title="Cuentas"
-          subtitle="Saldo al inicio del día indicado, antes de los registros de ese día. Lo anterior a esa fecha no cambia el saldo."
+          subtitle="El saldo que tenía cada cuenta cuando empezaste a usar la app. Si no coincide con tu banco, usa Ajustar al banco en Cuentas."
           action={
-            <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => s.guardarCuenta({ id: uid(), nombre: 'Nueva cuenta', tipo: 'Banco', saldoInicial: 0, fechaSaldo: hoyISO() })}>
+            <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => s.guardarCuenta({ id: uid(), nombre: 'Nueva cuenta', tipo: 'Banco', saldoInicial: 0, fechaSaldo: DESDE_SIEMPRE })}>
               <Plus size={16} /> Agregar
             </button>
           }
@@ -102,7 +127,7 @@ export function Ajustes() {
                 <div className="flex items-center gap-2">
                   <IconBadge icon={ICONO_CUENTA[c.tipo]} size="sm" />
                   <input className="input flex-1 min-w-0 !min-h-10 font-semibold" value={c.nombre} onChange={(e) => s.guardarCuenta({ ...c, nombre: e.target.value })} aria-label="Nombre de la cuenta" />
-                  <button className="btn btn-icon text-muted hover:!text-bad" onClick={() => eliminar('la cuenta', `Los registros que usan "${c.nombre}" quedarán sin cuenta.`, () => s.eliminarCuenta(c.id))} aria-label="Eliminar cuenta">
+                  <button className="btn btn-icon text-muted hover:!text-bad" onClick={() => eliminarCuenta(c.id)} aria-label="Eliminar cuenta">
                     <Trash2 size={17} />
                   </button>
                 </div>
@@ -112,9 +137,15 @@ export function Ajustes() {
                       <option key={t}>{t}</option>
                     ))}
                   </select>
-                  <CampoNumero className="!min-h-10 text-sm text-right" valor={c.saldoInicial} onValor={(n) => s.guardarCuenta({ ...c, saldoInicial: n })} aria-label="Saldo inicial" />
-                  <input className="input !min-h-10 text-sm col-span-2 sm:col-span-1" type="date" value={c.fechaSaldo} onChange={(e) => s.guardarCuenta({ ...c, fechaSaldo: e.target.value })} aria-label="Fecha del saldo" />
+                  <CampoNumero className="!min-h-10 text-sm text-right" valor={c.saldoInicial} onValor={(n) => s.guardarCuenta({ ...c, saldoInicial: n, fechaSaldo: fechaParaSaldo(c.fechaSaldo, n, fechasCuenta(c.id)) })} aria-label="Saldo inicial" />
+                  {c.fechaSaldo > '1900' && (
+                    <input className="input !min-h-10 text-sm col-span-2 sm:col-span-1" type="date" value={c.fechaSaldo} onChange={(e) => s.guardarCuenta({ ...c, fechaSaldo: e.target.value || DESDE_SIEMPRE })} aria-label="Fecha del saldo" title="Fecha de ese saldo: los registros anteriores no lo cambian" />
+                  )}
                 </div>
+                <p className="text-xs text-muted mt-1.5">
+                  Hoy: <b className="num text-ink">{money(saldos.find((x) => x.cuenta.id === c.id)?.saldoActual ?? 0, s.ajustes.moneda)}</b>
+                  {c.fechaSaldo > '1900' ? ` · saldo inicial al ${fechaCorta(c.fechaSaldo)}` : ''}
+                </p>
               </li>
             ))}
           </ul>
@@ -125,14 +156,14 @@ export function Ajustes() {
           title="Fondos"
           subtitle="Para qué es tu dinero y cómo se reparte cada ingreso. El saldo de cada fondo pasa de un mes a otro."
           action={
-            <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => s.guardarFondo(fondoNuevo({ id: uid(), nombre: 'Nuevo fondo', icono: 'metas', cuentaId: s.cuentas[0]?.id ?? null, fechaSaldo: hoyISO() }))}>
+            <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => s.guardarFondo(fondoNuevo({ id: uid(), nombre: 'Nuevo fondo', icono: 'metas', cuentaId: s.cuentas[0]?.id ?? null }))}>
               <Plus size={16} /> Agregar
             </button>
           }
         >
           {/* Barra apilada del reparto */}
           <div className="flex h-3 rounded-full overflow-hidden bg-surface-3/70 mb-2">
-            {s.fondos.map((f, i) => (
+            {s.fondos.filter((f) => !f.archivado).map((f, i) => (
               <motion.div key={f.id} className="h-full" initial={false} animate={{ width: `${Math.min(1, f.porcentaje) * 100}%` }} style={{ background: `var(--c${(i % 10) + 1})` }} title={`${f.nombre} ${pct(f.porcentaje)}`} />
             ))}
           </div>
@@ -176,21 +207,30 @@ export function Ajustes() {
                       </option>
                     ))}
                   </select>
-                  <div className="block sm:col-span-2">
-                    <span className="block text-[11px] font-semibold text-muted mb-1">Saldo inicial y su fecha</span>
-                    <div className="flex gap-1.5">
-                      <CampoNumero className="!min-h-10 text-sm text-right flex-1 min-w-0" valor={f.saldoInicial} onValor={(n) => s.guardarFondo({ ...f, saldoInicial: n })} aria-label="Saldo inicial del fondo" />
-                      <input className="input !min-h-10 text-sm !w-[9.5rem] shrink-0" type="date" value={f.fechaSaldo > '1900' ? f.fechaSaldo : ''} onChange={(e) => s.guardarFondo({ ...f, fechaSaldo: e.target.value || '0000-01-01' })} aria-label="Fecha del saldo del fondo" />
-                    </div>
-                  </div>
-                  <label className="block sm:col-span-2">
-                    <span className="block text-[11px] font-semibold text-muted mb-1">Aporte fijo al mes</span>
-                    <CampoNumero className="!min-h-10 text-sm text-right" valor={f.aporteMensual} onValor={(n) => s.guardarFondo({ ...f, aporteMensual: n })} aria-label="Aporte mensual planificado" />
-                  </label>
                 </div>
-                <label className="text-[13px] flex items-center gap-2 cursor-pointer select-none mt-2.5">
-                  <input type="checkbox" checked={f.enSaldoNeto} onChange={(e) => s.guardarFondo({ ...f, enSaldoNeto: e.target.checked })} /> Cuenta en el saldo neto
-                </label>
+                <button type="button" className="text-xs font-bold text-primary mt-2.5" onClick={() => setAbiertos((a) => ({ ...a, [f.id]: !a[f.id] }))} aria-expanded={Boolean(abiertos[f.id])}>
+                  {abiertos[f.id] ? 'Menos opciones' : 'Más opciones: saldo inicial, aporte fijo'}
+                </button>
+                {abiertos[f.id] && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-2 mt-2">
+                    <div className="block sm:col-span-2">
+                      <span className="block text-[11px] font-semibold text-muted mb-1">Saldo inicial{f.fechaSaldo > '1900' ? ' y su fecha' : ''}</span>
+                      <div className="flex gap-1.5">
+                        <CampoNumero className="!min-h-10 text-sm text-right flex-1 min-w-0" valor={f.saldoInicial} onValor={(n) => s.guardarFondo({ ...f, saldoInicial: n, fechaSaldo: fechaParaSaldo(f.fechaSaldo, n, fechasFondo(f.id)) })} aria-label="Saldo inicial del fondo" />
+                        {f.fechaSaldo > '1900' && (
+                          <input className="input !min-h-10 text-sm !w-[9.5rem] shrink-0" type="date" value={f.fechaSaldo} onChange={(e) => s.guardarFondo({ ...f, fechaSaldo: e.target.value || DESDE_SIEMPRE })} aria-label="Fecha del saldo del fondo" />
+                        )}
+                      </div>
+                    </div>
+                    <label className="block sm:col-span-2">
+                      <span className="block text-[11px] font-semibold text-muted mb-1">Aporte fijo al mes (además del %)</span>
+                      <CampoNumero className="!min-h-10 text-sm text-right" valor={f.aporteMensual} onValor={(n) => s.guardarFondo({ ...f, aporteMensual: n })} aria-label="Aporte mensual planificado" />
+                    </label>
+                    <label className="text-[13px] flex items-center gap-2 cursor-pointer select-none sm:col-span-2">
+                      <input type="checkbox" checked={f.enSaldoNeto} onChange={(e) => s.guardarFondo({ ...f, enSaldoNeto: e.target.checked })} /> Cuenta en el saldo neto
+                    </label>
+                  </div>
+                )}
               </li>
             ))}
           </ul>
@@ -213,7 +253,7 @@ export function Ajustes() {
               <li key={m.id} className="flex items-center gap-1.5">
                 <I size={18} className="text-muted shrink-0 ml-1" />
                 <input className="input !min-h-10" value={m.nombre} onChange={(e) => s.guardarMetodo({ ...m, nombre: e.target.value })} aria-label="Método de pago" />
-                <button className="btn btn-icon text-muted hover:!text-bad shrink-0" onClick={() => s.eliminarMetodo(m.id)} aria-label="Eliminar método">
+                <button className="btn btn-icon text-muted hover:!text-bad shrink-0" onClick={() => eliminar('el método', `Los gastos con "${m.nombre}" quedarán sin método de pago.`, () => s.eliminarMetodo(m.id))} aria-label="Eliminar método">
                   <Trash2 size={17} />
                 </button>
               </li>
@@ -230,6 +270,8 @@ export function Ajustes() {
         </div>
       </button>
 
+      <EliminarYMover abierto={mover} onClose={() => setMover(null)} />
+
       <SelectorIcono
         abierto={editIcono}
         onClose={() => setEditIcono(null)}
@@ -240,6 +282,58 @@ export function Ajustes() {
         }}
       />
     </div>
+  )
+}
+
+/** Eliminar una cuenta o categoría en uso: su dinero y sus registros pasan a otra. */
+function EliminarYMover({ abierto, onClose }: { abierto: { tipo: 'cuenta' | 'categoria'; id: string } | null; onClose: () => void }) {
+  const s = useStore()
+  const esCuenta = abierto?.tipo === 'cuenta'
+  const lista: { id: string; nombre: string }[] = esCuenta ? s.cuentas : s.categorias
+  const item = lista.find((x) => x.id === abierto?.id)
+  const otras = lista.filter((x) => x.id !== abierto?.id)
+  const [destino, setDestino] = useState('')
+  const elegido = otras.some((x) => x.id === destino) ? destino : (otras[0]?.id ?? '')
+  const saldo = esCuenta && item ? (saldosCuentas(s).find((x) => x.cuenta.id === item.id)?.saldoActual ?? 0) : 0
+  const nGastos = item ? s.gastos.filter((g) => (esCuenta ? g.cuentaId : g.categoriaId) === item.id).length : 0
+  const nFondos = esCuenta && item ? s.fondos.filter((f) => f.cuentaId === item.id).length : 0
+  const confirmarEliminar = () => {
+    if (!abierto || !elegido) return
+    const nombreDestino = otras.find((x) => x.id === elegido)?.nombre
+    if (esCuenta) s.eliminarCuenta(abierto.id, elegido)
+    else s.eliminarCategoria(abierto.id, elegido)
+    toast(`${esCuenta ? 'Cuenta' : 'Categoría'} eliminada`, { tono: 'info', detalle: `Todo pasó a ${nombreDestino}.` })
+    onClose()
+  }
+  return (
+    <Modal open={Boolean(abierto && item)} onClose={onClose} title={item ? `Eliminar ${item.nombre}` : 'Eliminar'}>
+      {item && (
+        <div className="space-y-4">
+          <p className="text-sm text-muted leading-relaxed">
+            {esCuenta
+              ? `${item.nombre} tiene ${money(saldo, s.ajustes.moneda)}${nFondos ? `, ${nFondos} ${nFondos === 1 ? 'fondo' : 'fondos'}` : ''} y ${nGastos} ${nGastos === 1 ? 'gasto' : 'gastos'}. Elige a qué cuenta pasa todo para que tus saldos sigan cuadrando.`
+              : `${item.nombre} tiene ${nGastos} ${nGastos === 1 ? 'gasto' : 'gastos'}. Elige a qué categoría pasan para que tus totales sigan cuadrando.`}
+          </p>
+          <Field label={esCuenta ? 'Pasar todo a la cuenta' : 'Pasar los gastos a la categoría'}>
+            <select className="input" value={elegido} onChange={(e) => setDestino(e.target.value)}>
+              {otras.map((x) => (
+                <option key={x.id} value={x.id}>
+                  {x.nombre}
+                </option>
+              ))}
+            </select>
+          </Field>
+          <div className="flex flex-col-reverse sm:flex-row sm:justify-end gap-2">
+            <button className="btn btn-ghost" onClick={onClose}>
+              Cancelar
+            </button>
+            <button className="btn bg-bad text-white" onClick={confirmarEliminar} disabled={!elegido}>
+              <Trash2 size={16} /> Eliminar y mover
+            </button>
+          </div>
+        </div>
+      )}
+    </Modal>
   )
 }
 

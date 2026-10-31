@@ -250,7 +250,8 @@ export function resumenFondos(d: Datos, mes: string): ResumenFondos {
       const gastado = sum(d.gastos.filter((g) => g.fondoId === f.id && g.fecha >= ini && g.fecha <= fin && g.fecha >= base).map((g) => g.monto))
       const entradas = sum(delMes.filter((a) => a.monto > 0).map((a) => a.monto))
       const salidasTot = -sum(delMes.filter((a) => a.monto < 0).map((a) => a.monto))
-      const saldoAnterior = saldoFondoEn(d, f, diaAntes, af)
+      // Si el fondo empieza a mitad de este mes, "venía con" es su saldo inicial (no se calcula hacia atrás).
+      const saldoAnterior = base > diaAntes && base <= fin ? r2(f.saldoInicial) : saldoFondoEn(d, f, diaAntes, af)
       const saldoMes = saldoFondoEn(d, f, fin, af)
       const disponible = saldoAnterior + entradas
       const pctUsado = disponible > 0 ? gastado / disponible : null
@@ -357,6 +358,9 @@ export interface ResumenMes {
   saldoTotalCuentas: number
 }
 
+/** Categoría virtual para gastos cuya categoría se eliminó. */
+export const CATEGORIA_SIN: Categoria = { id: '', nombre: 'Sin categoría', presupuesto: 0, color: 'var(--muted)', icono: 'otros' }
+
 export function resumenMes(d: Datos, mes: string): ResumenMes {
   const gasto = gastoMes(d, mes)
   const presupuesto = presupuestoTotal(d)
@@ -382,6 +386,11 @@ export function resumenMes(d: Datos, mes: string): ResumenMes {
       estado,
     }
   })
+  // Gastos cuya categoría ya no existe: se muestran en una fila propia para que los totales cuadren.
+  const huerfano = r2(gasto - sum(categorias.map((c) => c.gastado)))
+  if (huerfano > EPS) {
+    categorias.push({ categoria: CATEGORIA_SIN, presupuesto: 0, gastado: huerfano, disponible: -huerfano, pctUsado: null, proyeccion: transcurridos === 0 ? 0 : (huerfano / transcurridos) * diasMes, prom3m: 0, estado: 'En control' })
+  }
   const mayor = categorias.reduce<FilaCategoria | null>((a, b) => (b.gastado > 0 && (!a || b.gastado > a.gastado) ? b : a), null)
   const estado: Estado = gasto > presupuesto + EPS ? 'Excedido' : proyeccionCierre > presupuesto + EPS ? 'En riesgo' : 'En control'
 
@@ -489,7 +498,7 @@ export function fijosDelMes(d: Datos, mes: string) {
   const items = recs
     .map((r) => ({ r, fecha: fechaOcurrencia(r, mes) }))
     .filter((x): x is { r: Recurrente; fecha: string } => x.fecha !== null)
-    .map((x) => ({ ...x, pagado: estaRegistrado(d, x.r, mes) }))
+    .map((x) => ({ ...x, pagado: estaRegistrado(d, x.r, mes) || (x.r.omitidos ?? []).includes(mes) }))
   return {
     items,
     total: sum(items.map((x) => x.r.monto)),
@@ -502,7 +511,7 @@ export function fijosDelMes(d: Datos, mes: string) {
 export interface PuedesGastar {
   /** Saldo de los fondos de gasto. */
   enFondosDeGasto: number
-  /** Gastos fijos del mes aún sin pagar que salen de fondos de gasto (o sin fondo). */
+  /** Gastos fijos del mes aún sin pagar que salen de fondos de gasto. */
   fijosPendientes: number
   /** Lo que puedes gastar sin tocar ahorros ni fijos. */
   disponible: number
@@ -523,8 +532,9 @@ export function puedesGastar(d: Datos, hoy = hoyISO()): PuedesGastar {
   const diasRestantes = Math.max(1, diasDelMes(mes) - Number(hoy.slice(8, 10)) + 1)
   if (fondosGasto.length === 0) {
     const r = resumenMes(d, mes)
-    const disponible = Math.max(0, r.disponible - fijosPendientes)
-    return { enFondosDeGasto: 0, fijosPendientes, disponible, diasRestantes, porDia: disponible / diasRestantes, segunPresupuesto: true }
+    const pendientesPresupuesto = sum(fijos.items.filter((x) => !x.pagado && x.r.tipo === 'gasto').map((x) => x.r.monto))
+    const disponible = Math.max(0, r.disponible - pendientesPresupuesto)
+    return { enFondosDeGasto: 0, fijosPendientes: pendientesPresupuesto, disponible, diasRestantes, porDia: disponible / diasRestantes, segunPresupuesto: true }
   }
   const enFondosDeGasto = r2(sum(fondosGasto.map((f) => saldoFondoEn(d, f, SIEMPRE, af))))
   const disponible = r2(enFondosDeGasto - fijosPendientes)

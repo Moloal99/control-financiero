@@ -1,11 +1,11 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowRight, CalendarClock, CalendarDays, ChartPie, Check, CircleCheck, Gauge, Inbox, PiggyBank, Plus, Sparkles, Target, TrendingUp, TriangleAlert, Wallet, X } from 'lucide-react'
+import { ArrowDownLeft, ArrowRight, CalendarClock, ShoppingBag, CalendarDays, ChartPie, Check, CircleCheck, Gauge, Inbox, PiggyBank, Plus, Sparkles, Target, TrendingUp, TriangleAlert, Wallet, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
 import { useStore, CLAVE_AVISO_MIGRACION } from '../store'
-import { acumuladoDiario, mesInicioDatos, metas as calcularMetas, ocurrenciasPendientes, puedesGastar, resumenFondos, resumenMes, seriePatrimonio, type Alerta } from '../lib/calc'
+import { CATEGORIA_SIN, acumuladoDiario, mesInicioDatos, metas as calcularMetas, ocurrenciasPendientes, puedesGastar, resumenFondos, resumenMes, seriePatrimonio, type Alerta } from '../lib/calc'
 import type { InformeMigracion as Informe } from '../lib/migrar'
-import { toast, vibrar } from '../lib/feedback'
+import { registrarFijo, registrarFijoConCambios } from '../lib/acciones'
 import { hoyISO, mesActual, money, moneyShort, nombreMes, pct } from '../lib/format'
 import { iconoDe } from '../lib/iconos'
 import { irA, useUI } from '../lib/ui'
@@ -28,6 +28,7 @@ export function Inicio({ oscuro, alertas, onDescartar }: { oscuro: boolean; aler
     <div className="space-y-4 md:space-y-5">
       <AvisoMigracion />
       <Hero pg={pg} ahorro={f.ahorroTotal} total={f.saldoTotalCuentas} sinAsignar={f.sinAsignar} mon={mon} />
+      <AccionesRapidas />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card
@@ -95,7 +96,7 @@ export function Inicio({ oscuro, alertas, onDescartar }: { oscuro: boolean; aler
         <Card
           icon={CalendarClock}
           title="Fijos de este mes"
-          subtitle={s.recurrentes.some((x) => x.activo) ? `${pendientes.length} por registrar` : 'Alquiler, internet, sueldo…'}
+          subtitle={s.recurrentes.some((x) => x.activo) ? (pendientes.length ? `${pendientes.length} por marcar. Toca el monto si cambió.` : 'Todo al día') : 'Alquiler, internet, sueldo…'}
           action={
             <button className="text-sm text-primary font-bold hover:underline" onClick={() => irA('plan', 'fijos')}>
               {s.recurrentes.length ? 'Ver todos' : 'Agregar'}
@@ -104,7 +105,7 @@ export function Inicio({ oscuro, alertas, onDescartar }: { oscuro: boolean; aler
         >
           {!s.recurrentes.some((x) => x.activo) ? (
             <Empty icon={CalendarClock} title="Sin gastos fijos" action={<button className="btn btn-ghost" onClick={() => irA('plan', 'fijos')}><Plus size={17} /> Agregar fijos</button>}>
-              Regístralos una vez y la app te recuerda o los anota cada mes.
+              Anótalos una vez y cada mes aparecen aquí para marcarlos como pagados con un toque.
             </Empty>
           ) : pendientes.length === 0 ? (
             <Empty icon={CircleCheck} title="Todo registrado">Ya anotaste todos los fijos de {nombreMes(mes).toLowerCase()}.</Empty>
@@ -119,17 +120,11 @@ export function Inicio({ oscuro, alertas, onDescartar }: { oscuro: boolean; aler
                         {o.vencida ? 'Venció el' : 'Vence el'} {Number(o.fecha.slice(8, 10))} de {nombreMes(o.mes).split(' ')[0].toLowerCase()}
                       </p>
                     </div>
-                    <span className={`num font-bold text-sm ${o.recurrente.tipo === 'ingreso' ? 'text-ok' : ''}`}>{money(o.recurrente.monto, mon)}</span>
-                    <button
-                      className="btn btn-soft !min-h-9 !px-3 text-sm"
-                      onClick={() => {
-                        const id = useStore.getState().registrarRecurrente(o.recurrente.id, o.fecha > hoy ? hoy : o.fecha)
-                        vibrar(15)
-                        toast(`${o.recurrente.nombre} registrado`, { accion: id ? { texto: 'Deshacer', onClick: () => (o.recurrente.tipo === 'gasto' ? useStore.getState().eliminarGasto(id) : useStore.getState().eliminarMovimiento(id)) } : undefined })
-                        if (o.recurrente.tipo === 'ingreso' && o.recurrente.distribuir !== false) setTimeout(() => useUI.getState().abrirPagate(o.recurrente.cuentaId), 350)
-                      }}
-                    >
-                      <Check size={15} /> Registrar
+                    <button className={`num font-bold text-sm underline decoration-dotted underline-offset-4 decoration-muted/60 ${o.recurrente.tipo === 'ingreso' ? 'text-ok' : ''}`} onClick={() => registrarFijoConCambios(o.recurrente, o.fecha)} title="Registrar con otro monto">
+                      {money(o.recurrente.monto, mon)}
+                    </button>
+                    <button className="btn btn-soft !min-h-9 !px-3 text-sm" onClick={() => registrarFijo(o.recurrente, o.fecha)}>
+                      <Check size={15} /> {o.recurrente.tipo === 'gasto' ? 'Pagado' : 'Cobrado'}
                     </button>
                   </motion.li>
                 ))}
@@ -207,6 +202,30 @@ function Stat({ k, v, destacado = false, alerta = false, onClick }: { k: string;
       </p>
       <p className="num font-extrabold text-base md:text-lg leading-tight mt-0.5 truncate">{v}</p>
     </Tag>
+  )
+}
+
+/* ───────────────────────── Acciones rápidas ───────────────────────── */
+
+function AccionesRapidas() {
+  const abrir = useUI((u) => u.abrirRegistro)
+  const acciones = [
+    { k: 'Gasto', d: 'Anotar lo que gastaste', icono: ShoppingBag, color: 'var(--primary)', onClick: () => abrir({ pestana: 'gasto' }) },
+    { k: 'Ingreso', d: 'Sueldo u otro ingreso', icono: ArrowDownLeft, color: 'var(--ok)', onClick: () => abrir({ pestana: 'ingreso' }) },
+    { k: 'Ahorrar', d: 'Apartar para una meta', icono: PiggyBank, color: 'var(--accent)', onClick: () => abrir({ pestana: 'mover' }) },
+  ]
+  return (
+    <div className="grid grid-cols-3 gap-2.5">
+      {acciones.map((a) => (
+        <motion.button key={a.k} whileTap={{ scale: 0.97 }} onClick={a.onClick} className="card p-3 md:p-4 flex flex-col sm:flex-row items-center sm:items-center gap-2 sm:gap-3 text-center sm:text-left hover:bg-surface-2 transition-colors">
+          <IconBadge icon={a.icono} color={a.color} />
+          <span className="min-w-0">
+            <span className="block font-bold text-sm">{a.k}</span>
+            <span className="hidden sm:block text-xs text-muted truncate">{a.d}</span>
+          </span>
+        </motion.button>
+      ))}
+    </div>
   )
 }
 
@@ -339,7 +358,7 @@ function RitmoGasto({ mes, mon }: { mes: string; mon: string }) {
 function EnQueSeVa({ r, oscuro, mon, onRegistrar }: { r: ReturnType<typeof resumenMes>; oscuro: boolean; mon: string; onRegistrar: () => void }) {
   const categorias = useStore((s) => s.categorias)
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const colores = useMemo(() => Object.fromEntries(categorias.map((c) => [c.id, colorReal(c.color)])), [categorias, oscuro])
+  const colores = useMemo(() => Object.fromEntries([...categorias, CATEGORIA_SIN].map((c) => [c.id, colorReal(c.color)])), [categorias, oscuro])
   const donut = r.categorias
     .filter((c) => c.gastado > 0)
     .map((c) => ({ name: c.categoria.nombre, value: c.gastado, id: c.categoria.id }))
@@ -380,7 +399,7 @@ function EnQueSeVa({ r, oscuro, mon, onRegistrar }: { r: ReturnType<typeof resum
           </div>
           <ul className="text-sm space-y-2 flex-1 min-w-0 w-full">
             {donut.slice(0, 6).map((d) => {
-              const c = categorias.find((x) => x.id === d.id)!
+              const c = categorias.find((x) => x.id === d.id) ?? CATEGORIA_SIN
               const Icono = iconoDe(c)
               return (
                 <li key={d.id} className="flex items-center gap-2.5">

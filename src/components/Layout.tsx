@@ -1,6 +1,6 @@
 import { AnimatePresence, motion } from 'motion/react'
 import {
-  ArrowLeftRight, Bell, CalendarRange, ChartColumn, Ellipsis, FileSpreadsheet, House, Landmark, Moon, Plus, Settings, Sun, Target,
+  ArrowLeftRight, Bell, CalendarRange, ChartColumn, FileSpreadsheet, House, Landmark, LayoutGrid, Moon, Plus, Settings, Sun, Target,
   type LucideIcon,
 } from 'lucide-react'
 import { useState, type ReactNode } from 'react'
@@ -13,16 +13,16 @@ export type Vista = 'inicio' | 'movimientos' | 'metas' | 'cuentas' | 'plan' | 'a
 export const VISTAS: { id: Vista; nombre: string; corto: string; icono: LucideIcon; descripcion: string; secundaria?: boolean }[] = [
   { id: 'inicio', nombre: 'Inicio', corto: 'Inicio', icono: House, descripcion: 'Cuánto puedes gastar y cómo van tus metas' },
   { id: 'movimientos', nombre: 'Movimientos', corto: 'Movimientos', icono: ArrowLeftRight, descripcion: 'Gastos, ingresos y dinero apartado' },
-  { id: 'metas', nombre: 'Metas de ahorro', corto: 'Metas', icono: Target, descripcion: 'A dónde quieres llegar y cuánto te falta' },
+  { id: 'plan', nombre: 'Presupuesto y fijos', corto: 'Presupuesto', icono: CalendarRange, descripcion: 'Cuánto gastar por categoría, tus gastos fijos y la proyección' },
+  { id: 'metas', nombre: 'Ahorro y metas', corto: 'Ahorro', icono: Target, descripcion: 'A dónde quieres llegar y cuánto te falta' },
   { id: 'cuentas', nombre: 'Cuentas y fondos', corto: 'Cuentas', icono: Landmark, descripcion: 'Dónde está tu dinero y para qué es' },
-  { id: 'plan', nombre: 'Plan', corto: 'Plan', icono: CalendarRange, descripcion: 'Presupuesto, gastos fijos y proyección' },
   { id: 'analisis', nombre: 'Análisis', corto: 'Análisis', icono: ChartColumn, descripcion: 'Tendencias, patrimonio y cierre de mes' },
   { id: 'datos', nombre: 'Importar y exportar', corto: 'Datos', icono: FileSpreadsheet, descripcion: 'Excel, plantillas y respaldos', secundaria: true },
   { id: 'ajustes', nombre: 'Ajustes', corto: 'Ajustes', icono: Settings, descripcion: 'Categorías, cuentas, fondos y preferencias', secundaria: true },
 ]
 
 /** Vistas que en el celular viven dentro de "Más". */
-const EN_MAS: Vista[] = ['cuentas', 'plan', 'analisis', 'datos', 'ajustes']
+const EN_MAS: Vista[] = ['cuentas', 'analisis', 'datos', 'ajustes']
 
 export function Logo({ size = 36 }: { size?: number }) {
   return (
@@ -117,8 +117,8 @@ export function Layout({
                 <Bell size={20} />
                 {nAlertas > 0 && <Contador n={nAlertas} />}
               </button>
-              <button className="btn btn-icon text-muted" onClick={toggleTema} aria-label="Cambiar tema">
-                {oscuro ? <Sun size={20} /> : <Moon size={20} />}
+              <button className={`btn btn-icon relative ${EN_MAS.includes(vista) ? 'text-primary' : 'text-muted'}`} onClick={() => setMas(true)} aria-label="Más secciones">
+                <LayoutGrid size={20} />
               </button>
             </div>
           </div>
@@ -145,13 +145,13 @@ export function Layout({
               <Plus size={28} strokeWidth={2.6} />
             </motion.button>
           </div>
+          <TabItem id="plan" activo={vista === 'plan'} onClick={() => onVista('plan')} />
           <TabItem id="metas" activo={vista === 'metas'} onClick={() => onVista('metas')} />
-          <TabItem id="mas" activo={EN_MAS.includes(vista)} onClick={() => setMas(true)} />
         </div>
       </nav>
 
       <Modal open={mas} onClose={() => setMas(false)} title="Más">
-        <div className="grid grid-cols-2 gap-2 pb-2">
+        <div className="grid grid-cols-2 gap-2">
           {VISTAS.filter((v) => EN_MAS.includes(v.id)).map((v) => {
             const Icono = v.icono
             const activo = v.id === vista
@@ -171,6 +171,9 @@ export function Layout({
             )
           })}
         </div>
+        <button className="btn btn-ghost w-full mt-3 mb-2" onClick={toggleTema}>
+          {oscuro ? <Sun size={18} /> : <Moon size={18} />} {oscuro ? 'Usar tema claro' : 'Usar tema oscuro'}
+        </button>
       </Modal>
     </div>
   )
@@ -213,8 +216,8 @@ function RailItem({ v, activo, onClick }: { v: (typeof VISTAS)[number]; activo: 
   )
 }
 
-function TabItem({ id, activo, onClick }: { id: Vista | 'mas'; activo: boolean; onClick: () => void }) {
-  const v = id === 'mas' ? { corto: 'Más', icono: Ellipsis } : VISTAS.find((x) => x.id === id)!
+function TabItem({ id, activo, onClick }: { id: Vista; activo: boolean; onClick: () => void }) {
+  const v = VISTAS.find((x) => x.id === id)!
   const Icono = v.icono
   return (
     <button

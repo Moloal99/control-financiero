@@ -6,7 +6,7 @@
  */
 import ExcelJS from 'exceljs'
 import * as XLSX from 'xlsx'
-import type { Categoria, Cuenta, Datos, Fondo, Gasto, MetodoPago, Movimiento, Recurrente } from '../types'
+import type { Categoria, Cuenta, Datos, Escenario, Fondo, Gasto, MetodoPago, Movimiento, Recurrente } from '../types'
 import { hoyISO, mesActual, num, uid } from './format'
 import { COLORES, fondoNuevo } from './seed'
 import { convertirAhorroEnAportes, migrar, repartoActual, tipoFondoPorNombre } from './migrar'
@@ -212,6 +212,7 @@ function hojasConfiguracion(wb: ExcelJS.Workbook, d: Datos) {
       { header: 'Meta fecha', key: 'metaFecha', width: 13, fmt: FMT_FECHA },
       { header: 'Icono', key: 'icono', width: 14 },
       { header: 'Archivado', key: 'archivado', width: 11 },
+      { header: 'Meta creada', key: 'metaCreada', width: 13, fmt: FMT_FECHA },
     ],
     d.fondos.map((f) => ({
       nombre: f.nombre,
@@ -228,6 +229,7 @@ function hojasConfiguracion(wb: ExcelJS.Workbook, d: Datos) {
       metaFecha: f.meta?.fecha ? fechaExcel(f.meta.fecha) : null,
       icono: f.icono ?? sugerirIcono(f.nombre),
       archivado: f.archivado ? 'Sí' : '',
+      metaCreada: f.meta?.creada ? fechaExcel(f.meta.creada) : null,
     })),
     { color: 'FFE09400' },
   )
@@ -249,6 +251,8 @@ function hojasConfiguracion(wb: ExcelJS.Workbook, d: Datos) {
       { header: 'Registrar solo', key: 'auto', width: 14 },
       { header: 'Activo', key: 'activo', width: 9 },
       { header: 'Desde', key: 'desde', width: 10 },
+      { header: 'Creado', key: 'creado', width: 13, fmt: FMT_FECHA },
+      { header: 'Meses omitidos', key: 'omitidos', width: 18 },
     ],
     d.recurrentes.map((r) => ({
       nombre: r.nombre,
@@ -265,6 +269,29 @@ function hojasConfiguracion(wb: ExcelJS.Workbook, d: Datos) {
       auto: r.auto ? 'Sí' : 'No',
       activo: r.activo ? 'Sí' : 'No',
       desde: r.desde,
+      creado: r.creado ? fechaExcel(r.creado) : null,
+      omitidos: (r.omitidos ?? []).join(', '),
+    })),
+    { color: 'FFE09400' },
+  )
+  hoja(
+    wb,
+    'Escenarios',
+    [
+      { header: 'Nombre', key: 'nombre', width: 22 },
+      { header: 'Variación del ingreso', key: 'ingreso', width: 20, fmt: FMT_PCT },
+      { header: 'Recorte del gasto', key: 'recorte', width: 18, fmt: FMT_PCT },
+      { header: 'Ahorro extra (Bs)', key: 'aporte', width: 17, fmt: FMT_MONTO },
+      { header: 'Fondo del ahorro extra', key: 'fondo', width: 20 },
+      { header: 'Compras planeadas', key: 'compras', width: 60 },
+    ],
+    d.escenarios.map((e) => ({
+      nombre: e.nombre,
+      ingreso: e.ingresoPct,
+      recorte: e.recortePct,
+      aporte: e.aporteExtra,
+      fondo: nombreDe(d.fondos, e.aporteFondoId),
+      compras: e.compras.length ? JSON.stringify(e.compras.map((c) => ({ nombre: c.nombre, monto: c.monto, mes: c.mes, fondo: nombreDe(d.fondos, c.fondoId) }))) : '',
     })),
     { color: 'FFE09400' },
   )
@@ -479,9 +506,9 @@ function monto(v: unknown): number {
 const RE_ENCABEZADO = /^(fecha|categor[ií]a|cuenta|fondo|m[eé]todo( de pago)?)$/i
 
 /** Busca la fila de encabezados y devuelve las filas siguientes hasta la primera vacía, sin la fila Total. */
-function tabla(ws: XLSX.WorkSheet): Fila[] {
+function tabla(ws: XLSX.WorkSheet, encabezado: RegExp = RE_ENCABEZADO): Fila[] {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, raw: true })
-  const h = rows.findIndex((r) => r.some((c) => typeof c === 'string' && RE_ENCABEZADO.test(c.trim())))
+  const h = rows.findIndex((r) => r.some((c) => typeof c === 'string' && encabezado.test(c.trim())))
   if (h < 0) return []
   const headers = rows[h].map((c) => texto(c))
   const out: Fila[] = []
@@ -718,8 +745,8 @@ export async function analizarArchivo(file: File, actual: Datos, modo: ModoImpor
     wb = XLSX.read(await file.arrayBuffer(), { type: 'array', cellDates: false })
   }
   const r = importarLibro(wb, base, nombre, esCSV ? 'CSV' : 'Excel')
-  // El Excel no guarda los escenarios: al reemplazar se conservan los actuales, enlazados por nombre de fondo.
-  if (modo === 'reemplazar') r.datos.escenarios = remapearEscenarios(actual.escenarios, actual, r.datos)
+  // Si el archivo no trae escenarios (Excel antiguo o CSV), al reemplazar se conservan los actuales, enlazados por nombre de fondo.
+  if (modo === 'reemplazar' && r.datos.escenarios.length === 0) r.datos.escenarios = remapearEscenarios(actual.escenarios, actual, r.datos)
   return r
 }
 
@@ -874,7 +901,7 @@ function importarLibro(wb: XLSX.WorkBook, base: Datos, archivo: string, formato:
           objetivo: emergencia ? 0 : monto(colX(f, 'Meta objetivo (Bs)', 'Meta objetivo')),
           meses: emergencia ? Math.max(1, monto(colX(f, 'Meta meses de gasto', 'Meta meses')) || 3) : undefined,
           fecha: emergencia ? null : fechaMeta,
-          creada: fo.meta?.creada ?? hoyISO(),
+          creada: fechaISO(colX(f, 'Meta creada')) ?? fo.meta?.creada ?? hoyISO(),
         }
         fo.tipo = 'ahorro'
       }
@@ -907,10 +934,48 @@ function importarLibro(wb: XLSX.WorkBook, base: Datos, archivo: string, formato:
         auto: siNo(colX(f, 'Registrar solo'), false),
         activo: siNo(colX(f, 'Activo'), true),
         desde: /^\d{4}-\d{2}$/.test(texto(colX(f, 'Desde'))) ? texto(colX(f, 'Desde')) : mesActual(),
+        creado: fechaISO(colX(f, 'Creado')) ?? existente?.creado,
+        omitidos: texto(colX(f, 'Meses omitidos')) ? texto(colX(f, 'Meses omitidos')).split(/[,;\s]+/).filter((x) => /^\d{4}-\d{2}$/.test(x)) : (existente?.omitidos ?? []),
       }
       if (existente) Object.assign(existente, rec)
       else d.recurrentes.push(rec)
       r.configActualizada.push('gastos fijos')
+    }
+  }
+
+  // Escenarios de proyección
+  const wsEsc = buscar('Escenarios')
+  if (wsEsc) {
+    const pctX = (v: unknown) => {
+      const n = monto(v)
+      return Math.abs(n) > 1 ? n / 100 : n
+    }
+    for (const f of tabla(wsEsc, /^nombre$/i)) {
+      const nombre = texto(colX(f, 'Nombre'))
+      if (!nombre) continue
+      let compras: Escenario['compras'] = []
+      try {
+        const crudo = texto(colX(f, 'Compras planeadas'))
+        if (crudo) {
+          compras = (JSON.parse(crudo) as { nombre?: string; monto?: number; mes?: string; fondo?: string }[])
+            .filter((c) => c && c.nombre && Number(c.monto) > 0 && /^\d{4}-\d{2}$/.test(String(c.mes)))
+            .map((c) => ({ id: uid(), nombre: String(c.nombre), monto: Number(c.monto), mes: String(c.mes), fondoId: imp.fon(c.fondo ?? '')?.id ?? null }))
+        }
+      } catch {
+        compras = []
+      }
+      const esc: Escenario = {
+        id: d.escenarios.find((x) => x.nombre.toLowerCase() === nombre.toLowerCase())?.id ?? uid(),
+        nombre,
+        ingresoPct: pctX(colX(f, 'Variación del ingreso')),
+        recortePct: pctX(colX(f, 'Recorte del gasto')),
+        aporteExtra: monto(colX(f, 'Ahorro extra (Bs)', 'Ahorro extra')),
+        aporteFondoId: imp.fon(texto(colX(f, 'Fondo del ahorro extra')))?.id ?? null,
+        compras,
+      }
+      const i = d.escenarios.findIndex((x) => x.id === esc.id)
+      if (i >= 0) d.escenarios[i] = esc
+      else d.escenarios.push(esc)
     }
   }
 
