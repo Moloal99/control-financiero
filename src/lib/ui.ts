@@ -10,8 +10,10 @@ export interface AperturaRegistro {
   pestana?: PestanaRegistro
   gasto?: Gasto | null
   movimiento?: Movimiento | null
-  /** Valores iniciales para un movimiento nuevo (por ejemplo, mover desde "sin asignar"). */
+  /** Valores iniciales para un ingreso o movimiento nuevo (por ejemplo, mover desde "sin asignar"). */
   preset?: Partial<Movimiento> | null
+  /** Valores iniciales para un gasto nuevo (por ejemplo, un fijo con otro monto). */
+  presetGasto?: Partial<Gasto> | null
 }
 
 interface UIState {

@@ -447,7 +447,7 @@ function Cierre({ mes }: { mes: string }) {
             <Cifra k="Pendientes" v={money(c.fijos.pendiente, mon)} cls={c.fijos.pendiente > 0 ? 'text-warn' : ''} />
           </div>
           <p className="text-xs text-muted mt-3 inline-flex items-center gap-1.5">
-            <ArrowDownLeft size={13} /> Los fijos se administran en Plan.
+            <ArrowDownLeft size={13} /> Los fijos se administran en Presupuesto y fijos.
           </p>
         </Card>
       </div>

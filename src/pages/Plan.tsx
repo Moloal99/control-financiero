@@ -6,10 +6,12 @@ import { useStore } from '../store'
 import { estaRegistrado, fechaOcurrencia, ingresoEsperado, mesesPrevios, proyeccionCategorias, proyectarSaldos, resumenMes } from '../lib/calc'
 import { confirmar, toast, vibrar } from '../lib/feedback'
 import { hoyISO, mesActual, mesDe, money, moneyShort, nombreMes, num, pct, uid } from '../lib/format'
-import { iconoDe } from '../lib/iconos'
-import { irA, useUI, type SubPlan } from '../lib/ui'
+import { useUI, type SubPlan } from '../lib/ui'
+import { origenPorDefecto, registrarFijo, registrarFijoConCambios } from '../lib/acciones'
+import { COLORES } from '../lib/seed'
+import { iconoDe, sugerirIcono } from '../lib/iconos'
 import type { CompraPlaneada, Escenario, Recurrente } from '../types'
-import { Barra, Card, Empty, EstadoPill, Field, IconBadge, KPI, Modal, Segmented, Switch, Td, Th, tonoEstado } from '../components/ui'
+import { Barra, CampoNumero, Card, Empty, EstadoPill, Field, IconBadge, KPI, Modal, Segmented, Switch, Td, Th, tonoEstado } from '../components/ui'
 
 export function Plan({ mes }: { mes: string }) {
   const sub = useUI((u) => u.subPlan)
@@ -44,9 +46,19 @@ function Presupuesto({ mes }: { mes: string }) {
   const s = useStore()
   const mon = s.ajustes.moneda
   const r = useMemo(() => resumenMes(s, mes), [s, mes])
+  const [editando, setEditando] = useState(false)
+  const [nueva, setNueva] = useState('')
   const ingreso = ingresoEsperado(s, mes)
   const aAhorro = s.fondos.filter((f) => f.tipo === 'ahorro' && !f.archivado).reduce((a, f) => a + ingresoEsperado(s, mes, true) * f.porcentaje + f.aporteMensual, 0)
   const libre = ingreso - r.presupuesto - aAhorro
+
+  const agregar = () => {
+    const nombre = nueva.trim()
+    if (!nombre) return
+    s.guardarCategoria({ id: uid(), nombre, presupuesto: 0, color: COLORES[s.categorias.length % COLORES.length], icono: sugerirIcono(nombre) })
+    setNueva('')
+    vibrar(12)
+  }
 
   return (
     <div className="space-y-4 md:space-y-5">
@@ -67,27 +79,53 @@ function Presupuesto({ mes }: { mes: string }) {
           {libre < -0.5
             ? 'Tu presupuesto y tu ahorro superan lo que esperas ganar. Baja algún presupuesto o el % de tus fondos.'
             : libre > 0.5
-              ? 'Puedes asignar lo que queda a una meta o a un fondo de gasto.'
-              : 'Tu ingreso está completamente planificado.'}{' '}
-          <button className="font-bold text-primary" onClick={() => irA('ajustes')}>
-            Editar presupuestos
-          </button>
+              ? 'Puedes asignar lo que queda a una meta o a una categoría.'
+              : 'Tu ingreso está completamente planificado.'}
         </p>
       </Card>
 
-      <Card title={`Presupuesto por categoría, ${nombreMes(mes).toLowerCase()}`} subtitle="Gastado frente a lo presupuestado, con la proyección al cierre" padding={false}>
+      <Card
+        title={`Presupuesto por categoría, ${nombreMes(mes).toLowerCase()}`}
+        subtitle={editando ? 'Escribe cuánto quieres gastar al mes en cada categoría' : 'Gastado frente a lo presupuestado'}
+        padding={false}
+        action={
+          <button className={`btn ${editando ? 'btn-primary' : 'btn-soft'} !min-h-9 !px-3 text-sm`} onClick={() => setEditando((e) => !e)}>
+            {editando ? (
+              <>
+                <Check size={16} /> Listo
+              </>
+            ) : (
+              <>
+                <Pencil size={15} /> Editar
+              </>
+            )}
+          </button>
+        }
+      >
         <ul className="divide-y divide-line mt-2">
           {r.categorias.map((c) => {
             const Icono = iconoDe(c.categoria)
+            const real = s.categorias.find((x) => x.id === c.categoria.id)
+            if (editando && real) {
+              return (
+                <li key={c.categoria.id} className="px-4 md:px-5 py-2.5 flex items-center gap-3">
+                  <IconBadge icon={Icono} color={c.categoria.color} size="sm" />
+                  <input className="input flex-1 min-w-0 !min-h-10" value={real.nombre} onChange={(e) => s.guardarCategoria({ ...real, nombre: e.target.value })} aria-label="Nombre de la categoría" />
+                  <div className="relative w-32 shrink-0">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-muted text-sm pointer-events-none">{mon}</span>
+                    <CampoNumero className="!min-h-10 !pl-9 text-right font-bold" valor={real.presupuesto} onValor={(n) => s.guardarCategoria({ ...real, presupuesto: n })} aria-label={`Presupuesto de ${real.nombre}`} />
+                  </div>
+                </li>
+              )
+            }
             return (
-              <li key={c.categoria.id} className="px-4 md:px-5 py-3.5 flex items-center gap-3 md:gap-4">
+              <li key={c.categoria.id || 'sin'} className="px-4 md:px-5 py-3.5 flex items-center gap-3 md:gap-4">
                 <IconBadge icon={Icono} color={c.categoria.color} />
                 <div className="flex-1 min-w-0">
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="font-semibold truncate">{c.categoria.nombre}</p>
                     <p className={`num text-sm font-bold shrink-0 ${c.disponible < 0 ? 'text-bad' : ''}`}>
-                      {c.disponible < 0 ? 'Excede ' : 'Quedan '}
-                      {money(Math.abs(c.disponible), mon)}
+                      {c.presupuesto <= 0 && c.gastado <= 0 ? <span className="text-muted font-semibold">Sin presupuesto</span> : <>{c.disponible < 0 ? 'Excede ' : 'Quedan '}{money(Math.abs(c.disponible), mon)}</>}
                     </p>
                   </div>
                   <div className="my-1.5">
@@ -97,7 +135,7 @@ function Presupuesto({ mes }: { mes: string }) {
                     <span className="num truncate">
                       {money(c.gastado, mon)} de {money(c.presupuesto, mon)}
                       <span className="hidden sm:inline">
-                        , proyección {money(c.proyeccion, mon)}, promedio 3 meses {money(c.prom3m, mon)}
+                        , al ritmo actual {money(c.proyeccion, mon)} al cierre
                       </span>
                     </span>
                     <span className="shrink-0 hidden min-[400px]:inline">
@@ -109,6 +147,20 @@ function Presupuesto({ mes }: { mes: string }) {
             )
           })}
         </ul>
+        {editando && (
+          <form
+            className="px-4 md:px-5 py-3 border-t border-line flex gap-2"
+            onSubmit={(e) => {
+              e.preventDefault()
+              agregar()
+            }}
+          >
+            <input className="input flex-1 min-w-0 !min-h-10" placeholder="Nueva categoría (por ejemplo, Salud)" value={nueva} onChange={(e) => setNueva(e.target.value)} aria-label="Nueva categoría" />
+            <button type="submit" className="btn btn-soft !min-h-10" disabled={!nueva.trim()}>
+              <Plus size={16} /> Agregar
+            </button>
+          </form>
+        )}
         <div className="px-4 md:px-5 py-3.5 border-t border-line bg-surface-2/60 rounded-b-[1.25rem] flex flex-wrap items-center justify-between gap-2 text-sm">
           <span className="font-bold">Total del mes</span>
           <span className="num text-muted">
@@ -116,6 +168,7 @@ function Presupuesto({ mes }: { mes: string }) {
           </span>
         </div>
       </Card>
+      {editando && <p className="text-xs text-muted -mt-2 px-1">Para cambiar iconos o eliminar categorías, ve a Ajustes.</p>}
     </div>
   )
 }
@@ -165,6 +218,8 @@ function sugerirFijos(s: ReturnType<typeof useStore.getState>, mes: string): Sug
   return out.slice(0, 5)
 }
 
+const omitido = (r: Recurrente, mes: string) => (r.omitidos ?? []).includes(mes)
+
 function Fijos({ mes }: { mes: string }) {
   const s = useStore()
   const mon = s.ajustes.moneda
@@ -174,20 +229,25 @@ function Fijos({ mes }: { mes: string }) {
   const sugerencias = useMemo(() => sugerirFijos(useStore.getState(), mesActual()), [s.gastos, s.recurrentes]) // eslint-disable-line react-hooks/exhaustive-deps
   const totalGastos = gastos.filter((r) => r.activo && fechaOcurrencia(r, mes)).reduce((a, r) => a + r.monto, 0)
   const totalIngresos = ingresos.filter((r) => r.activo && fechaOcurrencia(r, mes)).reduce((a, r) => a + r.monto, 0)
-  const pendientes = s.recurrentes.filter((r) => r.activo && fechaOcurrencia(r, mes) && !estaRegistrado(s, r, mes))
+  const pendientes = s.recurrentes.filter((r) => r.activo && fechaOcurrencia(r, mes) && !estaRegistrado(s, r, mes) && !omitido(r, mes))
 
   return (
     <div className="space-y-4 md:space-y-5">
       <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
         <KPI icon={ArrowDownLeft} label="Ingresos fijos" value={money(totalIngresos, mon)} tone="ok" hint={nombreMes(mes)} />
         <KPI icon={Receipt} label="Gastos fijos" value={money(totalGastos, mon)} hint={totalIngresos > 0 ? `${pct(totalGastos / totalIngresos)} de tus ingresos fijos` : nombreMes(mes)} />
-        <KPI icon={CalendarClock} label="Por registrar" value={String(pendientes.length)} tone={pendientes.length ? 'warn' : 'ok'} hint={pendientes.length ? money(pendientes.reduce((a, r) => a + r.monto, 0), mon) : 'todo al día'} />
-        <KPI icon={Zap} label="Se registran solos" value={String(s.recurrentes.filter((r) => r.auto && r.activo).length)} hint="al abrir la app" />
+        <KPI icon={CalendarClock} label="Por pagar o cobrar" value={String(pendientes.length)} tone={pendientes.length ? 'warn' : 'ok'} hint={pendientes.length ? money(pendientes.reduce((a, r) => a + r.monto, 0), mon) : 'todo al día'} />
+        <KPI icon={Zap} label="Se anotan solos" value={String(s.recurrentes.filter((r) => r.auto && r.activo).length)} hint="al abrir la app" />
       </div>
 
-      <button className="btn btn-primary" onClick={() => setEditar({ r: null })}>
-        <Plus size={18} /> Agregar fijo
-      </button>
+      <div className="flex flex-wrap gap-2">
+        <button className="btn btn-primary" onClick={() => setEditar({ r: null, base: { tipo: 'gasto' } })}>
+          <Plus size={18} /> Gasto fijo
+        </button>
+        <button className="btn btn-soft" onClick={() => setEditar({ r: null, base: { tipo: 'ingreso', nombre: ingresos.length ? '' : 'Sueldo', monto: ingresos.length ? undefined : s.ajustes.ingresoMensual, dia: 1 } })}>
+          <Plus size={18} /> Ingreso fijo
+        </button>
+      </div>
 
       {sugerencias.length > 0 && (
         <Card icon={Lightbulb} title="¿Son gastos fijos?" subtitle="Se repiten casi igual en los últimos meses">
@@ -212,18 +272,18 @@ function Fijos({ mes }: { mes: string }) {
 
       {s.recurrentes.length === 0 ? (
         <Card>
-          <Empty icon={CalendarClock} title="Anota tus fijos una sola vez" action={<button className="btn btn-primary" onClick={() => setEditar({ r: null, base: { tipo: 'ingreso', nombre: 'Sueldo', monto: s.ajustes.ingresoMensual, dia: 1 } })}><Plus size={18} /> Empezar con mi sueldo</button>}>
-            Sueldo, alquiler, internet, gimnasio, suscripciones. Cada mes te recordamos registrarlos o se anotan solos, y la proyección los usa.
+          <Empty icon={CalendarClock} title="Anota tus fijos una sola vez">
+            Sueldo, alquiler, internet, gimnasio, suscripciones. Cada mes aparecen en Inicio para marcarlos como pagados con un toque (o se anotan solos), y la proyección los usa.
           </Empty>
         </Card>
       ) : (
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
-          <ListaFijos titulo="Ingresos" lista={ingresos} mes={mes} onEditar={(r) => setEditar({ r })} />
           <ListaFijos titulo="Gastos fijos" lista={gastos} mes={mes} onEditar={(r) => setEditar({ r })} />
+          <ListaFijos titulo="Ingresos fijos" lista={ingresos} mes={mes} onEditar={(r) => setEditar({ r })} />
         </div>
       )}
 
-      <Modal open={Boolean(editar)} onClose={() => setEditar(null)} title={editar?.r ? `Editar ${editar.r.nombre}` : 'Nuevo fijo'}>
+      <Modal open={Boolean(editar)} onClose={() => setEditar(null)} title={editar?.r ? `Editar ${editar.r.nombre}` : editar?.base?.tipo === 'ingreso' ? 'Nuevo ingreso fijo' : 'Nuevo gasto fijo'}>
         {editar && <FormFijo key={editar.r?.id ?? JSON.stringify(editar.base ?? {})} r={editar.r} base={editar.base} onClose={() => setEditar(null)} />}
       </Modal>
     </div>
@@ -233,9 +293,8 @@ function Fijos({ mes }: { mes: string }) {
 function ListaFijos({ titulo, lista, mes, onEditar }: { titulo: string; lista: Recurrente[]; mes: string; onEditar: (r: Recurrente) => void }) {
   const s = useStore()
   const mon = s.ajustes.moneda
-  const hoy = hoyISO()
   return (
-    <Card title={titulo} subtitle={lista.length ? `${lista.length} ${lista.length === 1 ? 'registrado' : 'registrados'}` : undefined} padding={false}>
+    <Card title={titulo} subtitle={lista.length ? `${lista.length} ${lista.length === 1 ? 'registrado' : 'registrados'}. Toca uno para editarlo.` : undefined} padding={false}>
       {lista.length === 0 ? (
         <div className="px-4 pb-4">
           <Empty>Ninguno todavía.</Empty>
@@ -248,6 +307,7 @@ function ListaFijos({ titulo, lista, mes, onEditar }: { titulo: string; lista: R
             .map((r) => {
               const fecha = fechaOcurrencia(r, mes)
               const hecho = fecha ? estaRegistrado(s, r, mes) : false
+              const saltado = omitido(r, mes)
               const cat = s.categorias.find((c) => c.id === r.categoriaId)
               const fondo = s.fondos.find((f) => f.id === r.fondoId)
               return (
@@ -261,7 +321,7 @@ function ListaFijos({ titulo, lista, mes, onEditar }: { titulo: string; lista: R
                   <button className="flex-1 min-w-0 text-left" onClick={() => onEditar(r)}>
                     <p className="font-semibold truncate">
                       {r.nombre}
-                      {r.auto && <Zap size={12} className="inline ml-1 text-accent -mt-0.5" aria-label="Se registra solo" />}
+                      {r.auto && <Zap size={12} className="inline ml-1 text-accent -mt-0.5" aria-label="Se anota solo" />}
                     </p>
                     <p className="text-xs text-muted truncate">
                       {r.frecuencia === 'anual' ? `Cada año en ${nombreMes(`2000-${String(r.mesAnual ?? 1).padStart(2, '0')}`).split(' ')[0].toLowerCase()}` : 'Cada mes'}
@@ -277,19 +337,15 @@ function ListaFijos({ titulo, lista, mes, onEditar }: { titulo: string; lista: R
                       <p className="text-[11px] text-muted">no este mes</p>
                     ) : hecho ? (
                       <p className="text-[11px] text-ok font-semibold inline-flex items-center gap-0.5">
-                        <CircleCheck size={11} /> registrado
+                        <CircleCheck size={11} /> {r.tipo === 'gasto' ? 'pagado' : 'cobrado'}
                       </p>
+                    ) : saltado ? (
+                      <button className="text-[11px] text-muted font-semibold" onClick={() => registrarFijoConCambios(r, fecha)} title="Lo borraste este mes. Tócalo para registrarlo igual.">
+                        omitido este mes
+                      </button>
                     ) : (
-                      <button
-                        className="text-[11px] text-primary font-bold"
-                        onClick={() => {
-                          const id = s.registrarRecurrente(r.id, fecha > hoy ? hoy : fecha)
-                          vibrar(15)
-                          toast(`${r.nombre} registrado`, { accion: id ? { texto: 'Deshacer', onClick: () => (r.tipo === 'gasto' ? useStore.getState().eliminarGasto(id) : useStore.getState().eliminarMovimiento(id)) } : undefined })
-                          if (r.tipo === 'ingreso' && r.distribuir !== false) setTimeout(() => useUI.getState().abrirPagate(r.cuentaId), 350)
-                        }}
-                      >
-                        Registrar
+                      <button className="text-[11px] text-primary font-bold" onClick={() => registrarFijo(r, fecha)}>
+                        {r.tipo === 'gasto' ? 'Marcar pagado' : 'Marcar cobrado'}
                       </button>
                     )}
                   </div>
@@ -306,27 +362,38 @@ function FormFijo({ r, base, onClose }: { r: Recurrente | null; base?: Partial<R
   const s = useStore()
   const mon = s.ajustes.moneda
   const ini = { ...base, ...r }
+  const [defecto] = useState(() => origenPorDefecto(s, ini.categoriaId ?? null))
   const [tipo, setTipo] = useState<Recurrente['tipo']>(ini.tipo ?? 'gasto')
   const [nombre, setNombre] = useState(ini.nombre ?? '')
-  const [monto, setMonto] = useState(ini.monto ? String(ini.monto) : '')
-  const [dia, setDia] = useState(String(ini.dia ?? 1))
+  const [monto, setMonto] = useState(ini.monto ? String(ini.monto).replace('.', ',') : '')
+  const [dia, setDia] = useState(String(ini.dia ?? Number(hoyISO().slice(8, 10))))
   const [frecuencia, setFrecuencia] = useState<Recurrente['frecuencia']>(ini.frecuencia ?? 'mensual')
   const [mesAnual, setMesAnual] = useState(() => String(ini.mesAnual ?? Number(hoyISO().slice(5, 7))))
   const [categoriaId, setCategoriaId] = useState(ini.categoriaId ?? '')
-  const [fondoId, setFondoId] = useState(ini.fondoId ?? '')
-  const [cuentaId, setCuentaId] = useState(ini.cuentaId ?? '')
-  const [metodoId, setMetodoId] = useState(ini.metodoId ?? s.metodos[0]?.id ?? '')
+  const [fondoId, setFondoId] = useState(r ? (r.fondoId ?? '') : (ini.fondoId ?? (ini.tipo === 'ingreso' ? '' : defecto.fondoId)))
+  const [cuentaId, setCuentaId] = useState(r ? (r.cuentaId ?? '') : (ini.cuentaId ?? (ini.tipo === 'ingreso' ? (s.cuentas[0]?.id ?? '') : defecto.cuentaId)))
+  const [metodoId, setMetodoId] = useState(r ? (r.metodoId ?? '') : (ini.metodoId ?? defecto.metodoId))
   const [distribuir, setDistribuir] = useState(ini.distribuir ?? true)
   const [auto, setAuto] = useState(ini.auto ?? false)
   const [activo, setActivo] = useState(ini.activo ?? true)
   const [desde, setDesde] = useState(ini.desde ?? mesActual())
+  const [mas, setMas] = useState(false)
+  const [tocado, setTocado] = useState(Boolean(r || base?.fondoId || base?.cuentaId))
+
+  const elegirCategoria = (id: string) => {
+    setCategoriaId(id)
+    if (tocado) return
+    const o = origenPorDefecto(s, id)
+    setFondoId(o.fondoId)
+    setCuentaId(o.cuentaId)
+    setMetodoId(o.metodoId)
+  }
 
   const validacion = !nombre.trim() ? 'Ponle un nombre' : !(num(monto) > 0) ? 'Ingresa el monto' : !(num(dia) >= 1 && num(dia) <= 31) ? 'El día va de 1 a 31' : tipo === 'gasto' && !categoriaId ? 'Elige la categoría' : !cuentaId ? 'Elige la cuenta' : null
 
   const guardar = () => {
     if (validacion) return
-    const nuevo: Recurrente = {
-      id: r?.id ?? uid(),
+    const campos = {
       nombre: nombre.trim(),
       tipo,
       monto: num(monto),
@@ -342,9 +409,11 @@ function FormFijo({ r, base, onClose }: { r: Recurrente | null; base?: Partial<R
       activo,
       desde,
     }
+    // Al editar se conservan la fecha de creación y los meses omitidos.
+    const nuevo: Recurrente = r ? { ...r, ...campos } : { id: uid(), ...campos }
     s.guardarRecurrente(nuevo)
     vibrar(18)
-    toast(r ? 'Fijo actualizado' : 'Fijo agregado', { detalle: `${money(nuevo.monto, mon)} el día ${nuevo.dia}` })
+    toast(r ? 'Fijo actualizado' : 'Fijo agregado', { detalle: `${money(nuevo.monto, mon)} el día ${nuevo.dia}${r ? '' : '. Aparecerá en Inicio cuando toque pagarlo.'}` })
     onClose()
   }
 
@@ -356,6 +425,8 @@ function FormFijo({ r, base, onClose }: { r: Recurrente | null; base?: Partial<R
     onClose()
   }
 
+  const fondosLista = s.fondos.filter((f) => !f.archivado || f.id === fondoId)
+
   return (
     <form
       className="space-y-5"
@@ -364,121 +435,187 @@ function FormFijo({ r, base, onClose }: { r: Recurrente | null; base?: Partial<R
         guardar()
       }}
     >
-      <Segmented
-        full
-        value={tipo}
-        onChange={setTipo}
-        options={[
-          { id: 'gasto', label: 'Gasto fijo', icon: ShoppingBag },
-          { id: 'ingreso', label: 'Ingreso fijo', icon: ArrowDownLeft },
-        ]}
-      />
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Nombre">
-          <input className="input" placeholder={tipo === 'gasto' ? 'Alquiler, internet…' : 'Sueldo'} value={nombre} onChange={(e) => setNombre(e.target.value)} />
-        </Field>
+      {!r && (
+        <Segmented
+          full
+          value={tipo}
+          onChange={(t) => {
+            setTipo(t)
+            if (t === 'ingreso' && !tocado) setFondoId('')
+          }}
+          options={[
+            { id: 'gasto', label: 'Gasto fijo', icon: ShoppingBag },
+            { id: 'ingreso', label: 'Ingreso fijo', icon: ArrowDownLeft },
+          ]}
+        />
+      )}
+      <Field label="Nombre">
+        <input className="input" placeholder={tipo === 'gasto' ? 'Alquiler, internet, gimnasio…' : 'Sueldo'} value={nombre} onChange={(e) => setNombre(e.target.value)} />
+      </Field>
+      <div className="grid grid-cols-2 gap-4">
         <Field label={`Monto (${mon})`}>
           <input className="input num font-bold" inputMode="decimal" value={monto} onChange={(e) => setMonto(e.target.value)} />
         </Field>
-      </div>
-      <div className="grid grid-cols-2 gap-4">
-        <Field label="Día del mes">
+        <Field label={tipo === 'gasto' ? 'Se paga el día' : 'Llega el día'}>
           <input className="input num" inputMode="numeric" value={dia} onChange={(e) => setDia(e.target.value)} />
         </Field>
-        <Field label="Se repite">
-          <select className="input" value={frecuencia} onChange={(e) => setFrecuencia(e.target.value as Recurrente['frecuencia'])}>
-            <option value="mensual">Cada mes</option>
-            <option value="anual">Cada año</option>
-          </select>
-        </Field>
       </div>
-      {frecuencia === 'anual' && (
-        <Field label="Mes">
-          <select className="input" value={mesAnual} onChange={(e) => setMesAnual(e.target.value)}>
-            {Array.from({ length: 12 }, (_, i) => (
-              <option key={i + 1} value={i + 1}>
-                {nombreMes(`2000-${String(i + 1).padStart(2, '0')}`).split(' ')[0]}
-              </option>
-            ))}
-          </select>
+      {tipo === 'gasto' ? (
+        <Field label="Categoría" grupo>
+          <div className="flex flex-wrap gap-2">
+            {s.categorias.map((c) => {
+              const I = iconoDe(c)
+              const activoC = c.id === categoriaId
+              return (
+                <button
+                  key={c.id}
+                  type="button"
+                  onClick={() => elegirCategoria(c.id)}
+                  aria-pressed={activoC}
+                  className={`inline-flex items-center gap-1.5 min-h-10 px-3 rounded-xl text-sm font-semibold border transition-colors ${activoC ? 'border-primary bg-primary-soft text-primary' : 'border-line bg-surface hover:bg-surface-2'}`}
+                >
+                  <I size={16} style={{ color: activoC ? undefined : c.color }} /> {c.nombre}
+                </button>
+              )
+            })}
+          </div>
         </Field>
-      )}
-      {tipo === 'gasto' && (
-        <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Categoría">
-          <select className="input" value={categoriaId} onChange={(e) => setCategoriaId(e.target.value)}>
-            <option value="">Elegir categoría</option>
-            {s.categorias.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Método de pago">
-          <select className="input" value={metodoId} onChange={(e) => setMetodoId(e.target.value)}>
-            {s.metodos.map((m) => (
-              <option key={m.id} value={m.id}>
-                {m.nombre}
-              </option>
-            ))}
-          </select>
-        </Field>
-        </div>
-      )}
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label={tipo === 'gasto' ? 'Se paga desde' : 'Llega a'}>
-          <select className="input" value={cuentaId} onChange={(e) => setCuentaId(e.target.value)}>
-            <option value="">Elegir cuenta</option>
-            {s.cuentas.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </select>
-        </Field>
-        {tipo === 'gasto' ? (
-          <Field label="Sale del fondo">
-            <select
-              className="input"
-              value={fondoId}
-              onChange={(e) => {
-                setFondoId(e.target.value)
-                const c = s.fondos.find((f) => f.id === e.target.value)?.cuentaId
-                if (c && !cuentaId) setCuentaId(c)
-              }}
-            >
-              <option value="">Sin fondo</option>
-              {s.fondos.map((f) => (
-                <option key={f.id} value={f.id}>
-                  {f.nombre}
+      ) : (
+        <>
+          <Field label="Llega a">
+            <select className="input" value={cuentaId} onChange={(e) => setCuentaId(e.target.value)}>
+              <option value="">Elegir cuenta</option>
+              {s.cuentas.map((c) => (
+                <option key={c.id} value={c.id}>
+                  {c.nombre}
                 </option>
               ))}
             </select>
           </Field>
-        ) : (
-          !distribuir && (
-            <Field label="Va al fondo">
-              <select className="input" value={fondoId} onChange={(e) => setFondoId(e.target.value)}>
-                <option value="">Sin asignar</option>
-                {s.fondos.map((f) => (
-                  <option key={f.id} value={f.id}>
-                    {f.nombre}
-                  </option>
-                ))}
-              </select>
-            </Field>
-          )
-        )}
+          <div className="rounded-2xl border border-line p-4">
+            <Switch checked={distribuir} onChange={setDistribuir} label="Repartir entre mis fondos" descripcion="Con los porcentajes de cada fondo." />
+          </div>
+        </>
+      )}
+      <div className="rounded-2xl border border-line p-4">
+        <Switch checked={auto} onChange={setAuto} label="Anotarlo solo" descripcion={auto ? 'Se registra solo al abrir la app cuando llega el día.' : 'Te lo recordamos en Inicio y lo marcas como pagado con un toque. Mejor si el monto cambia cada mes.'} />
       </div>
-      <div className="rounded-2xl border border-line p-4 space-y-4">
-        {tipo === 'ingreso' && <Switch checked={distribuir} onChange={setDistribuir} label="Repartir entre mis fondos" descripcion="Con los porcentajes de cada fondo." />}
-        <Switch checked={auto} onChange={setAuto} label="Registrar solo" descripcion="Se anota al abrir la app cuando llega la fecha. Si no, te lo recuerda." />
-        <Switch checked={activo} onChange={setActivo} label="Activo" descripcion="Páusalo si deja de aplicar por un tiempo." />
+
+      <div className="rounded-2xl border border-line">
+        <button type="button" onClick={() => setMas((m) => !m)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-surface-2 rounded-2xl transition-colors" aria-expanded={mas}>
+          <span className="min-w-0">
+            <span className="block text-sm font-bold">Más opciones</span>
+            <span className="block text-xs text-muted truncate">
+              {[
+                frecuencia === 'anual' ? 'Cada año' : 'Cada mes',
+                tipo === 'gasto' ? (s.fondos.find((f) => f.id === fondoId)?.nombre ? `de ${s.fondos.find((f) => f.id === fondoId)?.nombre}` : 'sin fondo') : null,
+                tipo === 'gasto' ? s.cuentas.find((c) => c.id === cuentaId)?.nombre : null,
+                activo ? null : 'pausado',
+              ]
+                .filter(Boolean)
+                .join(' · ')}
+            </span>
+          </span>
+          <motion.span animate={{ rotate: mas ? 180 : 0 }}>
+            <ChevronDown size={18} className="text-muted" />
+          </motion.span>
+        </button>
+        <AnimatePresence initial={false}>
+          {mas && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+              <div className="px-4 pb-4 pt-1 space-y-4 border-t border-line">
+                <div className="grid grid-cols-2 gap-4">
+                  <Field label="Se repite">
+                    <select className="input" value={frecuencia} onChange={(e) => setFrecuencia(e.target.value as Recurrente['frecuencia'])}>
+                      <option value="mensual">Cada mes</option>
+                      <option value="anual">Cada año</option>
+                    </select>
+                  </Field>
+                  {frecuencia === 'anual' ? (
+                    <Field label="Mes">
+                      <select className="input" value={mesAnual} onChange={(e) => setMesAnual(e.target.value)}>
+                        {Array.from({ length: 12 }, (_, i) => (
+                          <option key={i + 1} value={i + 1}>
+                            {nombreMes(`2000-${String(i + 1).padStart(2, '0')}`).split(' ')[0]}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  ) : (
+                    <Field label="Desde el mes">
+                      <input className="input" type="month" value={desde} onChange={(e) => setDesde(e.target.value)} />
+                    </Field>
+                  )}
+                </div>
+                {tipo === 'gasto' && (
+                  <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                    <Field label="Sale del fondo">
+                      <select
+                        className="input"
+                        value={fondoId}
+                        onChange={(e) => {
+                          setFondoId(e.target.value)
+                          setTocado(true)
+                          const c = s.fondos.find((f) => f.id === e.target.value)?.cuentaId
+                          if (c) setCuentaId(c)
+                        }}
+                      >
+                        <option value="">Sin fondo</option>
+                        {fondosLista.map((f) => (
+                          <option key={f.id} value={f.id}>
+                            {f.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Se paga desde">
+                      <select
+                        className="input"
+                        value={cuentaId}
+                        onChange={(e) => {
+                          setCuentaId(e.target.value)
+                          setTocado(true)
+                        }}
+                      >
+                        <option value="">Elegir cuenta</option>
+                        {s.cuentas.map((c) => (
+                          <option key={c.id} value={c.id}>
+                            {c.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                    <Field label="Método de pago">
+                      <select className="input" value={metodoId} onChange={(e) => setMetodoId(e.target.value)}>
+                        <option value="">Sin especificar</option>
+                        {s.metodos.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </Field>
+                  </div>
+                )}
+                {tipo === 'ingreso' && !distribuir && (
+                  <Field label="Va al fondo">
+                    <select className="input" value={fondoId} onChange={(e) => setFondoId(e.target.value)}>
+                      <option value="">Sin asignar</option>
+                      {fondosLista.map((f) => (
+                        <option key={f.id} value={f.id}>
+                          {f.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                )}
+                <Switch checked={activo} onChange={setActivo} label="Activo" descripcion="Páusalo si deja de aplicar por un tiempo." />
+              </div>
+            </motion.div>
+          )}
+        </AnimatePresence>
       </div>
-      <Field label="Desde el mes">
-        <input className="input" type="month" value={desde} onChange={(e) => setDesde(e.target.value)} />
-      </Field>
+
       {r && (
         <button type="button" className="btn btn-danger w-full" onClick={eliminar}>
           <Trash2 size={16} /> Eliminar

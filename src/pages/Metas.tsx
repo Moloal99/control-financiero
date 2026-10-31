@@ -240,7 +240,7 @@ function FormMeta({ fondo, onClose }: { fondo: Fondo | null; onClose: () => void
     }
     const f: Fondo = fondo
       ? { ...fondo, nombre: nombre.trim(), icono, cuentaId, porcentaje: pctN, aporteMensual: num(aporte), tipo: 'ahorro', meta: nuevaMeta }
-      : fondoNuevo({ id: uid(), nombre: nombre.trim(), icono, cuentaId, porcentaje: pctN, aporteMensual: num(aporte), tipo: 'ahorro', meta: nuevaMeta, fechaSaldo: hoyISO() })
+      : fondoNuevo({ id: uid(), nombre: nombre.trim(), icono, cuentaId, porcentaje: pctN, aporteMensual: num(aporte), tipo: 'ahorro', meta: nuevaMeta })
     s.guardarFondo(f)
     if (inicialN > 0) {
       const origen = s.fondos.find((x) => x.id === fuente)

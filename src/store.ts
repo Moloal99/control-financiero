@@ -4,7 +4,7 @@ import type { Ajustes, Categoria, Cuenta, Datos, Escenario, Fondo, Gasto, Metodo
 import { datosIniciales } from './lib/seed'
 import { hoyISO, uid } from './lib/format'
 import { VERSION_DATOS, migrar, normalizar } from './lib/migrar'
-import { ocurrenciasPendientes, registroDeRecurrente } from './lib/calc'
+import { ocurrenciasPendientes, registroDeRecurrente, saldosCuentas } from './lib/calc'
 
 type Sin<T> = Omit<T, 'id'>
 
@@ -20,20 +20,33 @@ function omitirSiAuto(recs: Recurrente[], id: string | null | undefined, fecha: 
   return recs.map((r) => (r.id === id && r.auto && !(r.omitidos ?? []).includes(mes) ? { ...r, omitidos: [...(r.omitidos ?? []), mes] } : r))
 }
 
+/** Si un registro de un fijo automático se cambia a otro mes, el mes original queda omitido (si no, se volvería a registrar solo). */
+function omitirSiCambiaMes(recs: Recurrente[], id: string | null | undefined, antes: string | undefined, despues: string | undefined): Recurrente[] {
+  if (!antes || !despues || antes.slice(0, 7) === despues.slice(0, 7)) return recs
+  return omitirSiAuto(recs, id, antes)
+}
+
+export interface OpcionesEliminar {
+  /** Deshacer un registro recién hecho: no marca el mes como omitido. */
+  sinOmitir?: boolean
+}
+
 interface Acciones {
   agregarGasto: (g: Sin<Gasto>) => string
   editarGasto: (id: string, g: Partial<Gasto>) => void
-  eliminarGasto: (id: string) => void
+  eliminarGasto: (id: string, op?: OpcionesEliminar) => void
   agregarMovimiento: (m: Sin<Movimiento>) => string
   agregarMovimientos: (ms: Sin<Movimiento>[]) => string[]
   editarMovimiento: (id: string, m: Partial<Movimiento>) => void
-  eliminarMovimiento: (id: string) => void
+  eliminarMovimiento: (id: string, op?: OpcionesEliminar) => void
   guardarCategoria: (c: Categoria) => void
-  eliminarCategoria: (id: string) => void
+  /** Elimina la categoría. Sus gastos y fijos pasan a `destinoId` (o quedan sin categoría). */
+  eliminarCategoria: (id: string, destinoId?: string | null) => void
   guardarMetodo: (m: MetodoPago) => void
   eliminarMetodo: (id: string) => void
   guardarCuenta: (c: Cuenta) => void
-  eliminarCuenta: (id: string) => void
+  /** Elimina la cuenta. Con `destinoId`, sus registros, fondos y saldo pasan a esa cuenta. */
+  eliminarCuenta: (id: string, destinoId?: string | null) => void
   guardarFondo: (f: Fondo) => void
   eliminarFondo: (id: string) => void
   guardarRecurrente: (r: Recurrente) => void
@@ -63,11 +76,18 @@ export const useStore = create<Store>()(
         set((s) => ({ gastos: [...s.gastos, { ...g, id }] }))
         return id
       },
-      editarGasto: (id, g) => set((s) => ({ gastos: s.gastos.map((x) => (x.id === id ? { ...x, ...g } : x)) })),
-      eliminarGasto: (id) =>
+      editarGasto: (id, g) =>
+        set((s) => {
+          const previo = s.gastos.find((x) => x.id === id)
+          return {
+            gastos: s.gastos.map((x) => (x.id === id ? { ...x, ...g } : x)),
+            recurrentes: omitirSiCambiaMes(s.recurrentes, previo?.recurrenteId, previo?.fecha, g.fecha),
+          }
+        }),
+      eliminarGasto: (id, op) =>
         set((s) => {
           const g = s.gastos.find((x) => x.id === id)
-          return { gastos: s.gastos.filter((x) => x.id !== id), recurrentes: omitirSiAuto(s.recurrentes, g?.recurrenteId, g?.fecha) }
+          return { gastos: s.gastos.filter((x) => x.id !== id), recurrentes: op?.sinOmitir ? s.recurrentes : omitirSiAuto(s.recurrentes, g?.recurrenteId, g?.fecha) }
         }),
       agregarMovimiento: (m) => {
         const id = uid()
@@ -79,18 +99,25 @@ export const useStore = create<Store>()(
         set((s) => ({ movimientos: [...s.movimientos, ...nuevos] }))
         return nuevos.map((m) => m.id)
       },
-      editarMovimiento: (id, m) => set((s) => ({ movimientos: s.movimientos.map((x) => (x.id === id ? { ...x, ...m } : x)) })),
-      eliminarMovimiento: (id) =>
+      editarMovimiento: (id, m) =>
+        set((s) => {
+          const previo = s.movimientos.find((x) => x.id === id)
+          return {
+            movimientos: s.movimientos.map((x) => (x.id === id ? { ...x, ...m } : x)),
+            recurrentes: omitirSiCambiaMes(s.recurrentes, previo?.recurrenteId, previo?.fecha, m.fecha),
+          }
+        }),
+      eliminarMovimiento: (id, op) =>
         set((s) => {
           const m = s.movimientos.find((x) => x.id === id)
-          return { movimientos: s.movimientos.filter((x) => x.id !== id), recurrentes: omitirSiAuto(s.recurrentes, m?.recurrenteId, m?.fecha) }
+          return { movimientos: s.movimientos.filter((x) => x.id !== id), recurrentes: op?.sinOmitir ? s.recurrentes : omitirSiAuto(s.recurrentes, m?.recurrenteId, m?.fecha) }
         }),
       guardarCategoria: (c) => set((s) => ({ categorias: upsert(s.categorias, c) })),
-      eliminarCategoria: (id) =>
+      eliminarCategoria: (id, destinoId = null) =>
         set((s) => ({
           categorias: s.categorias.filter((x) => x.id !== id),
-          gastos: s.gastos.map((g) => (g.categoriaId === id ? { ...g, categoriaId: '' } : g)),
-          recurrentes: s.recurrentes.map((r) => (r.categoriaId === id ? { ...r, categoriaId: null } : r)),
+          gastos: s.gastos.map((g) => (g.categoriaId === id ? { ...g, categoriaId: destinoId ?? '' } : g)),
+          recurrentes: s.recurrentes.map((r) => (r.categoriaId === id ? { ...r, categoriaId: destinoId } : r)),
         })),
       guardarMetodo: (m) => set((s) => ({ metodos: upsert(s.metodos, m) })),
       eliminarMetodo: (id) =>
@@ -100,8 +127,27 @@ export const useStore = create<Store>()(
           recurrentes: s.recurrentes.map((r) => (r.metodoId === id ? { ...r, metodoId: null } : r)),
         })),
       guardarCuenta: (c) => set((s) => ({ cuentas: upsert(s.cuentas, c) })),
-      eliminarCuenta: (id) =>
-        set((s) => ({
+      eliminarCuenta: (id, destinoId = null) =>
+        set((s) => {
+          if (destinoId && destinoId !== id && s.cuentas.some((c) => c.id === destinoId)) {
+            // Todo pasa a la cuenta destino y su saldo inicial se corrige para que hoy tenga la suma de ambas.
+            const saldos = saldosCuentas(s)
+            const antes = (saldos.find((x) => x.cuenta.id === id)?.saldoActual ?? 0) + (saldos.find((x) => x.cuenta.id === destinoId)?.saldoActual ?? 0)
+            const cambia = (c: string | null) => (c === id ? destinoId : c)
+            const movimientos = s.movimientos.map((m) => ({ ...m, cuentaOrigenId: cambia(m.cuentaOrigenId), cuentaDestinoId: cambia(m.cuentaDestinoId) }))
+            const gastos = s.gastos.map((g) => ({ ...g, cuentaId: cambia(g.cuentaId) }))
+            const cuentasSin = s.cuentas.filter((x) => x.id !== id)
+            const despues = saldosCuentas({ ...s, cuentas: cuentasSin, movimientos, gastos }).find((x) => x.cuenta.id === destinoId)?.saldoActual ?? 0
+            const dif = Math.round((antes - despues) * 100) / 100
+            return {
+              cuentas: cuentasSin.map((c) => (c.id === destinoId ? { ...c, saldoInicial: Math.round((c.saldoInicial + dif) * 100) / 100 } : c)),
+              fondos: s.fondos.map((f) => ({ ...f, cuentaId: cambia(f.cuentaId) })),
+              gastos,
+              movimientos,
+              recurrentes: s.recurrentes.map((r) => ({ ...r, cuentaId: cambia(r.cuentaId) })),
+            }
+          }
+          return {
           cuentas: s.cuentas.filter((x) => x.id !== id),
           fondos: s.fondos.map((f) => (f.cuentaId === id ? { ...f, cuentaId: null } : f)),
           gastos: s.gastos.map((g) => (g.cuentaId === id ? { ...g, cuentaId: null } : g)),
@@ -111,7 +157,8 @@ export const useStore = create<Store>()(
             cuentaDestinoId: m.cuentaDestinoId === id ? null : m.cuentaDestinoId,
           })),
           recurrentes: s.recurrentes.map((r) => (r.cuentaId === id ? { ...r, cuentaId: null } : r)),
-        })),
+          }
+        }),
       guardarFondo: (f) => set((s) => ({ fondos: upsert(s.fondos, f) })),
       eliminarFondo: (id) =>
         set((s) => ({

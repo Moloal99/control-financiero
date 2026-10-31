@@ -1,11 +1,12 @@
 import { AnimatePresence, motion } from 'motion/react'
 import { ArrowDownLeft, ArrowDown, Check, ChevronDown, CircleAlert, Inbox, PiggyBank, RotateCcw, ShoppingBag, TriangleAlert } from 'lucide-react'
+import { origenPorDefecto } from '../lib/acciones'
 import { createElement, useMemo, useState, type ReactNode } from 'react'
 import { format, parseISO, subDays } from 'date-fns'
 import { useStore } from '../store'
 import { impactoGasto, metas, repartoIngreso, resumenFondos, resumenMes } from '../lib/calc'
 import { confirmar, toast, vibrar } from '../lib/feedback'
-import { hoyISO, mesActual, mesDe, money, num } from '../lib/format'
+import { fechaCorta, hoyISO, mesActual, mesDe, money, num, uid } from '../lib/format'
 import { ICONO_CUENTA, iconoDe, iconoMetodo } from '../lib/iconos'
 import { useUI, type PestanaRegistro } from '../lib/ui'
 import type { Cuenta, Datos, Fondo, Gasto, Movimiento } from '../types'
@@ -31,10 +32,10 @@ export function Registrar() {
           ? 'Editar ajuste de saldo'
           : 'Editar movimiento'
       : 'Nuevo registro'
-  const clave = g?.id ?? m?.id ?? `${a.pestana ?? 'gasto'}-${JSON.stringify(a.preset ?? null)}`
+  const clave = g?.id ?? m?.id ?? `${a.pestana ?? 'gasto'}-${JSON.stringify(a.preset ?? null)}-${JSON.stringify(a.presetGasto ?? null)}`
   return (
     <Modal open={Boolean(apertura)} onClose={cerrar} title={titulo}>
-      <Contenido key={clave} onClose={cerrar} gasto={g} movimiento={m} pestana={a.pestana} preset={a.preset ?? null} />
+      <Contenido key={clave} onClose={cerrar} gasto={g} movimiento={m} pestana={a.pestana} preset={a.preset ?? null} presetGasto={a.presetGasto ?? null} />
     </Modal>
   )
 }
@@ -45,12 +46,14 @@ function Contenido({
   movimiento,
   pestana,
   preset,
+  presetGasto,
 }: {
   onClose: () => void
   gasto: Gasto | null
   movimiento: Movimiento | null
   pestana?: PestanaRegistro
   preset: Partial<Movimiento> | null
+  presetGasto: Partial<Gasto> | null
 }) {
   const inicial: PestanaRegistro = gasto ? 'gasto' : movimiento ? (movimiento.tipo === 'ingreso' ? 'ingreso' : 'mover') : (pestana ?? 'gasto')
   const [tab, setTab] = useState<PestanaRegistro>(inicial)
@@ -67,15 +70,15 @@ function Contenido({
           options={[
             { id: 'gasto', label: 'Gasto', icon: ShoppingBag },
             { id: 'ingreso', label: 'Ingreso', icon: ArrowDownLeft },
-            { id: 'mover', label: 'Mover', icon: PiggyBank },
+            { id: 'mover', label: 'Apartar', icon: PiggyBank },
           ]}
         />
       )}
       <AnimatePresence mode="wait" initial={false}>
         <motion.div key={tab} initial={{ opacity: 0, x: 12 }} animate={{ opacity: 1, x: 0 }} exit={{ opacity: 0, x: -12 }} transition={{ duration: 0.15 }}>
-          {tab === 'gasto' && <FormGasto onClose={onClose} gasto={gasto} />}
-          {tab === 'ingreso' && <FormIngreso onClose={onClose} movimiento={movimiento} />}
-          {tab === 'mover' && <FormMover onClose={onClose} movimiento={movimiento} preset={preset} />}
+          {tab === 'gasto' && <FormGasto onClose={onClose} gasto={gasto} preset={presetGasto} />}
+          {tab === 'ingreso' && <FormIngreso onClose={onClose} movimiento={movimiento} preset={tab === inicial ? preset : null} />}
+          {tab === 'mover' && <FormMover onClose={onClose} movimiento={movimiento} preset={tab === inicial ? preset : null} />}
         </motion.div>
       </AnimatePresence>
     </div>
@@ -232,46 +235,65 @@ function Sugerencias({ id, items }: { id: string; items: string[] }) {
 
 /* ───────────────────────── Gasto ───────────────────────── */
 
-function FormGasto({ onClose, gasto }: { onClose: () => void; gasto: Gasto | null }) {
+/** Texto corto de una fecha para el resumen de detalles. */
+function fechaTexto(fecha: string): string {
+  const hoy = hoyISO()
+  if (fecha === hoy) return 'Hoy'
+  if (fecha === format(subDays(parseISO(hoy), 1), 'yyyy-MM-dd')) return 'Ayer'
+  return fechaCorta(fecha)
+}
+
+/** Aviso si la fecha es anterior al saldo inicial de la cuenta (ese registro no cambiaría su saldo). */
+function avisoFechaCuenta(d: Datos, cuentaId: string, fecha: string): string | null {
+  const c = d.cuentas.find((x) => x.id === cuentaId)
+  if (!c || !fecha || fecha >= c.fechaSaldo) return null
+  return `El saldo de ${c.nombre} empieza el ${fechaCorta(c.fechaSaldo)}: este registro no lo cambia`
+}
+
+function FormGasto({ onClose, gasto, preset }: { onClose: () => void; gasto: Gasto | null; preset: Partial<Gasto> | null }) {
   const s = useStore()
   const mon = s.ajustes.moneda
   const saldos = useSaldos()
-  const [fecha, setFecha] = useState(gasto?.fecha ?? hoyISO())
-  const [categoriaId, setCategoriaId] = useState(gasto?.categoriaId ?? '')
-  const [descripcion, setDescripcion] = useState(gasto?.descripcion ?? '')
-  const [monto, setMonto] = useState(gasto ? String(gasto.monto).replace('.', ',') : '')
-  const [metodoId, setMetodoId] = useState(gasto?.metodoId ?? s.metodos[0]?.id ?? '')
-  const [cuentaId, setCuentaId] = useState(gasto?.cuentaId ?? '')
-  const [fondoId, setFondoId] = useState(gasto?.fondoId ?? '')
+  const base: Partial<Gasto> = gasto ?? preset ?? {}
+  const [inicial] = useState(() => origenPorDefecto(s, base.categoriaId ?? null))
+  const [fecha, setFecha] = useState(base.fecha ?? hoyISO())
+  const [categoriaId, setCategoriaId] = useState(base.categoriaId ?? '')
+  const [descripcion, setDescripcion] = useState(base.descripcion ?? '')
+  const [monto, setMonto] = useState(base.monto ? String(base.monto).replace('.', ',') : '')
+  const [metodoId, setMetodoId] = useState(gasto ? (gasto.metodoId ?? '') : (preset?.metodoId ?? inicial.metodoId))
+  const [cuentaId, setCuentaId] = useState(gasto ? (gasto.cuentaId ?? '') : (preset?.cuentaId ?? inicial.cuentaId))
+  const [fondoId, setFondoId] = useState(gasto ? (gasto.fondoId ?? '') : (preset?.fondoId ?? inicial.fondoId))
+  // Si el usuario cambia a mano el fondo, la cuenta o el método, ya no se proponen al elegir categoría.
+  const [tocado, setTocado] = useState(Boolean(gasto || preset))
+  const [esFijo, setEsFijo] = useState(false)
   const [guardarOtro, setGuardarOtro] = useState(false)
-  const [detalle, setDetalle] = useState(false)
+  const [detalles, setDetalles] = useState(false)
 
   const montoN = num(monto)
   const fondo = s.fondos.find((f) => f.id === fondoId)
+  const cuenta = s.cuentas.find((c) => c.id === cuentaId)
+  const metodo = s.metodos.find((m) => m.id === metodoId)
+  const categoria = s.categorias.find((c) => c.id === categoriaId)
   const resumen = useMemo(() => resumenMes(s, mesDe(fecha || hoyISO())), [s, fecha])
   const fondosGasto = s.fondos.filter((f) => !f.archivado && f.tipo === 'gasto')
   const fondosAhorro = s.fondos.filter((f) => !f.archivado && f.tipo === 'ahorro')
+  const vinculadoAFijo = Boolean(base.recurrenteId)
 
-  // Al elegir categoría, se proponen fondo, cuenta y método usados la última vez en esa categoría.
   const elegirCategoria = (id: string) => {
     setCategoriaId(id)
     vibrar(8)
-    if (gasto) return
-    const previo = s.gastos.filter((g) => g.categoriaId === id).sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
-    if (previo) {
-      if (previo.fondoId && s.fondos.some((f) => f.id === previo.fondoId)) setFondoId(previo.fondoId)
-      if (previo.cuentaId && s.cuentas.some((c) => c.id === previo.cuentaId)) setCuentaId(previo.cuentaId)
-      if (previo.metodoId && s.metodos.some((m) => m.id === previo.metodoId)) setMetodoId(previo.metodoId)
-    } else if (!fondoId && fondosGasto.length === 1) {
-      setFondoId(fondosGasto[0].id)
-      if (fondosGasto[0].cuentaId && !cuentaId) setCuentaId(fondosGasto[0].cuentaId)
-    }
+    if (tocado) return
+    const o = origenPorDefecto(s, id)
+    setFondoId(o.fondoId)
+    setCuentaId(o.cuentaId)
+    setMetodoId(o.metodoId)
   }
 
   const elegirFondo = (id: string) => {
     setFondoId(id)
+    setTocado(true)
     const f = s.fondos.find((x) => x.id === id)
-    if (f?.cuentaId && !cuentaId) setCuentaId(f.cuentaId)
+    if (f?.cuentaId) setCuentaId(f.cuentaId)
   }
 
   const sugerencias = useMemo(() => {
@@ -285,27 +307,23 @@ function FormGasto({ onClose, gasto }: { onClose: () => void; gasto: Gasto | nul
   }, [s.gastos, categoriaId])
 
   const impacto = useMemo(() => {
-    const base = gasto ? { ...s, gastos: s.gastos.filter((g) => g.id !== gasto.id) } : s
-    return impactoGasto(base, { fecha, categoriaId, monto: montoN, cuentaId: cuentaId || null, fondoId: fondoId || null })
+    const sinEste = gasto ? { ...s, gastos: s.gastos.filter((g) => g.id !== gasto.id) } : s
+    return impactoGasto(sinEste, { fecha, categoriaId, monto: montoN, cuentaId: cuentaId || null, fondoId: fondoId || null })
   }, [s, gasto, fecha, categoriaId, montoN, cuentaId, fondoId])
 
-  const validacion = !(montoN > 0)
-    ? 'Ingresa el monto'
-    : !fecha
-      ? 'Falta la fecha'
-      : !categoriaId
-        ? 'Elige una categoría'
-        : !fondoId
-          ? 'Elige de qué fondo sale'
-          : !cuentaId
-            ? 'Elige la cuenta'
-            : null
-  const aviso = !validacion && fondo?.tipo === 'ahorro' ? `Este gasto sale de tus ahorros (${fondo.nombre})` : !validacion && impacto.saldoFondoDespues < 0 ? `El fondo ${fondo?.nombre} queda en negativo` : null
+  const validacion = !(montoN > 0) ? 'Ingresa el monto' : !fecha ? 'Falta la fecha' : !categoriaId ? 'Elige una categoría' : null
+  const aviso = validacion
+    ? null
+    : fondo?.tipo === 'ahorro'
+      ? `Este gasto sale de tus ahorros (${fondo.nombre})`
+      : fondo && impacto.saldoFondoDespues < 0
+        ? `El fondo ${fondo.nombre} queda en negativo`
+        : avisoFechaCuenta(s, cuentaId, fecha)
 
   const guardar = () => {
     if (validacion) return
     const datos = { fecha, categoriaId, descripcion: descripcion.trim(), monto: montoN, metodoId: metodoId || null, cuentaId: cuentaId || null, fondoId: fondoId || null }
-    const cat = s.categorias.find((c) => c.id === categoriaId)?.nombre
+    const cat = categoria?.nombre
     vibrar(18)
     if (gasto) {
       s.editarGasto(gasto.id, datos)
@@ -313,11 +331,43 @@ function FormGasto({ onClose, gasto }: { onClose: () => void; gasto: Gasto | nul
       onClose()
       return
     }
-    const id = s.agregarGasto(datos)
-    toast('Gasto guardado', { detalle: `${money(montoN, mon)} en ${cat}`, accion: { texto: 'Deshacer', onClick: () => useStore.getState().eliminarGasto(id) }, duracion: 5000 })
+    let recurrenteId = base.recurrenteId ?? null
+    if (esFijo && !recurrenteId) {
+      recurrenteId = uid()
+      s.guardarRecurrente({
+        id: recurrenteId,
+        nombre: datos.descripcion || cat || 'Gasto fijo',
+        tipo: 'gasto',
+        monto: montoN,
+        dia: Number(fecha.slice(8, 10)),
+        frecuencia: 'mensual',
+        categoriaId,
+        fondoId: datos.fondoId,
+        cuentaId: datos.cuentaId,
+        metodoId: datos.metodoId,
+        auto: false,
+        activo: true,
+        desde: mesDe(fecha),
+      })
+    }
+    const id = s.agregarGasto({ ...datos, recurrenteId })
+    const nuevoFijo = esFijo && !base.recurrenteId ? recurrenteId : null
+    toast('Gasto guardado', {
+      detalle: nuevoFijo ? `${money(montoN, mon)} en ${cat}. Te lo recordaremos cada mes el día ${Number(fecha.slice(8, 10))}.` : `${money(montoN, mon)} en ${cat}`,
+      accion: {
+        texto: 'Deshacer',
+        onClick: () => {
+          const st = useStore.getState()
+          st.eliminarGasto(id, { sinOmitir: true })
+          if (nuevoFijo) st.eliminarRecurrente(nuevoFijo)
+        },
+      },
+      duracion: 5000,
+    })
     if (guardarOtro) {
       setDescripcion('')
       setMonto('')
+      setEsFijo(false)
     } else onClose()
   }
 
@@ -329,7 +379,7 @@ function FormGasto({ onClose, gasto }: { onClose: () => void; gasto: Gasto | nul
     onClose()
   }
 
-  const tonoV = (v: number) => (v < 0 ? 'text-bad' : 'text-ok')
+  const resumenDetalles = [fechaTexto(fecha), fondo ? `de ${fondo.nombre}` : 'sin fondo', cuenta?.nombre, metodo?.nombre].filter(Boolean).join(' · ')
 
   return (
     <form
@@ -369,83 +419,113 @@ function FormGasto({ onClose, gasto }: { onClose: () => void; gasto: Gasto | nul
             )
           })}
         </div>
+        {categoria && montoN > 0 && (
+          <p className="text-xs text-muted mt-2 leading-snug">
+            {categoria.presupuesto > 0 && (
+              <>
+                Después de este gasto quedan <b className={`num ${impacto.disponibleCategoriaDespues < 0 ? 'text-bad' : 'text-ink'}`}>{money(impacto.disponibleCategoriaDespues, mon)}</b> en {categoria.nombre}
+                {fondo ? ' y ' : '.'}
+              </>
+            )}
+            {fondo && (
+              <>
+                {categoria.presupuesto > 0 ? '' : 'Después de este gasto quedan '}
+                <b className={`num ${impacto.saldoFondoDespues < 0 ? 'text-bad' : 'text-ink'}`}>{money(impacto.saldoFondoDespues, mon)}</b> en el fondo {fondo.nombre}.
+              </>
+            )}
+          </p>
+        )}
       </Field>
 
-      <Field label="Descripción">
+      <Field label="Descripción (opcional)">
         <input className="input" placeholder="¿En qué se gastó?" value={descripcion} onChange={(e) => setDescripcion(e.target.value)} list="sugerencias-gasto" />
         <Sugerencias id="sugerencias-gasto" items={sugerencias} />
       </Field>
 
-      <FechaChips fecha={fecha} onChange={setFecha} />
-
-      <Field label="Sale del fondo" grupo>
-        {fondosGasto.length + fondosAhorro.length === 0 ? (
-          <p className="text-sm text-muted">Crea fondos en Ajustes.</p>
-        ) : (
-          <div className="space-y-2.5">
-            <ChipsFondo fondos={fondosGasto} value={fondoId} onChange={elegirFondo} saldos={saldos.fondos} mon={mon} />
-            {fondosAhorro.length > 0 && (
-              <div>
-                <p className="text-[11px] font-semibold text-muted mb-1.5">De tus ahorros</p>
-                <ChipsFondo fondos={fondosAhorro} value={fondoId} onChange={elegirFondo} saldos={saldos.fondos} mon={mon} />
-              </div>
-            )}
-          </div>
-        )}
-      </Field>
-
-      <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
-        <Field label="Cuenta" hint={fondo?.cuentaId ? `El fondo ${fondo.nombre} vive en ${s.cuentas.find((c) => c.id === fondo.cuentaId)?.nombre}` : undefined}>
-          <select className="input" value={cuentaId} onChange={(e) => setCuentaId(e.target.value)}>
-            <option value="">Elegir cuenta</option>
-            {s.cuentas.map((c) => (
-              <option key={c.id} value={c.id}>
-                {c.nombre}
-              </option>
-            ))}
-          </select>
-        </Field>
-        <Field label="Método de pago">
-          <div className="relative">
-            <IconoMetodo nombre={s.metodos.find((x) => x.id === metodoId)?.nombre ?? ''} />
-            <select className="input !pl-10" value={metodoId} onChange={(e) => setMetodoId(e.target.value)}>
-              {s.metodos.map((m) => (
-                <option key={m.id} value={m.id}>
-                  {m.nombre}
-                </option>
-              ))}
-            </select>
-          </div>
-        </Field>
-      </div>
-
-      <div className="rounded-2xl border border-line overflow-hidden">
-        <button type="button" onClick={() => setDetalle((d) => !d)} className="w-full flex items-center justify-between gap-3 px-4 py-3 hover:bg-surface-2 transition-colors" aria-expanded={detalle}>
-          <span className="text-sm font-bold">Cómo queda después</span>
-          <motion.span animate={{ rotate: detalle ? 180 : 0 }}>
-            <ChevronDown size={18} className="text-muted" />
-          </motion.span>
+      <div className="rounded-2xl border border-line">
+        <button type="button" onClick={() => setDetalles((d) => !d)} className="w-full flex items-center justify-between gap-3 px-4 py-3 text-left hover:bg-surface-2 rounded-2xl transition-colors" aria-expanded={detalles}>
+          <span className="min-w-0">
+            <span className="block text-[13px] font-semibold text-muted">Fecha, fondo y cuenta</span>
+            <span className="block text-sm font-semibold truncate">{resumenDetalles}</span>
+          </span>
+          <span className="inline-flex items-center gap-1 text-sm font-bold text-primary shrink-0">
+            {detalles ? 'Listo' : 'Cambiar'}
+            <motion.span animate={{ rotate: detalles ? 180 : 0 }}>
+              <ChevronDown size={16} />
+            </motion.span>
+          </span>
         </button>
-        <div className="grid grid-cols-3 gap-px bg-line border-t border-line">
-          <Mini k="Categoría" v={money(impacto.disponibleCategoriaDespues, mon)} cls={tonoV(impacto.disponibleCategoriaDespues)} />
-          <Mini k="Fondo" v={money(impacto.saldoFondoDespues, mon)} cls={tonoV(impacto.saldoFondoDespues)} />
-          <Mini k="Cuenta" v={money(impacto.saldoCuentaDespues, mon)} cls={tonoV(impacto.saldoCuentaDespues)} />
-        </div>
         <AnimatePresence initial={false}>
-          {detalle && (
-            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.22 }} className="overflow-hidden">
-              <div className="px-4 py-3 text-sm space-y-1.5 border-t border-line">
-                <Linea k="Presupuesto de la categoría (mes)" v={money(impacto.presupuestoCategoria, mon)} />
-                <Linea k="Disponible en la categoría después" v={money(impacto.disponibleCategoriaDespues, mon)} cls={tonoV(impacto.disponibleCategoriaDespues)} />
-                <Linea k="Saldo actual del fondo" v={money(impacto.saldoFondo, mon)} />
-                <Linea k="Saldo del fondo después" v={money(impacto.saldoFondoDespues, mon)} cls={tonoV(impacto.saldoFondoDespues)} />
-                <Linea k="Saldo actual de la cuenta" v={money(impacto.saldoCuenta, mon)} />
-                <Linea k="Saldo de la cuenta después" v={money(impacto.saldoCuentaDespues, mon)} cls={tonoV(impacto.saldoCuentaDespues)} />
+          {detalles && (
+            <motion.div initial={{ height: 0, opacity: 0 }} animate={{ height: 'auto', opacity: 1 }} exit={{ height: 0, opacity: 0 }} transition={{ duration: 0.2 }} className="overflow-hidden">
+              <div className="px-4 pb-4 pt-1 space-y-4 border-t border-line">
+                <FechaChips fecha={fecha} onChange={setFecha} />
+                <Field label="Sale del fondo" grupo>
+                  {fondosGasto.length + fondosAhorro.length === 0 ? (
+                    <p className="text-sm text-muted">No tienes fondos. Puedes crearlos en Ajustes.</p>
+                  ) : (
+                    <div className="space-y-2.5">
+                      <ChipsFondo fondos={fondosGasto} value={fondoId} onChange={elegirFondo} saldos={saldos.fondos} mon={mon} />
+                      {fondosAhorro.length > 0 && (
+                        <div>
+                          <p className="text-[11px] font-semibold text-muted mb-1.5">De tus ahorros</p>
+                          <ChipsFondo fondos={fondosAhorro} value={fondoId} onChange={elegirFondo} saldos={saldos.fondos} mon={mon} />
+                        </div>
+                      )}
+                    </div>
+                  )}
+                </Field>
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  <Field label="Cuenta">
+                    <select
+                      className="input"
+                      value={cuentaId}
+                      onChange={(e) => {
+                        setCuentaId(e.target.value)
+                        setTocado(true)
+                      }}
+                    >
+                      <option value="">Sin cuenta</option>
+                      {s.cuentas.map((c) => (
+                        <option key={c.id} value={c.id}>
+                          {c.nombre}
+                        </option>
+                      ))}
+                    </select>
+                  </Field>
+                  <Field label="Método de pago">
+                    <div className="relative">
+                      <IconoMetodo nombre={metodo?.nombre ?? ''} />
+                      <select
+                        className="input !pl-10"
+                        value={metodoId}
+                        onChange={(e) => {
+                          setMetodoId(e.target.value)
+                          setTocado(true)
+                        }}
+                      >
+                        <option value="">Sin especificar</option>
+                        {s.metodos.map((m) => (
+                          <option key={m.id} value={m.id}>
+                            {m.nombre}
+                          </option>
+                        ))}
+                      </select>
+                    </div>
+                  </Field>
+                </div>
               </div>
             </motion.div>
           )}
         </AnimatePresence>
       </div>
+
+      {!gasto && !vinculadoAFijo && (
+        <div className="rounded-2xl border border-line p-4">
+          <Switch checked={esFijo} onChange={setEsFijo} label="Es un gasto fijo" descripcion={esFijo ? `Se repite cada mes el día ${Number((fecha || hoyISO()).slice(8, 10))}. Te lo recordaremos en Inicio para marcarlo con un toque.` : 'Alquiler, internet, gimnasio… Actívalo y no tendrás que volver a escribirlo.'} />
+        </div>
+      )}
+      {vinculadoAFijo && !gasto && <p className="text-xs text-muted -mt-2">Se registra como el pago de este mes de tu gasto fijo.</p>}
 
       {gasto && (
         <button type="button" className="btn btn-danger w-full" onClick={eliminar}>
@@ -454,7 +534,7 @@ function FormGasto({ onClose, gasto }: { onClose: () => void; gasto: Gasto | nul
       )}
 
       <Pie validacion={validacion} aviso={aviso}>
-        {!gasto && (
+        {!gasto && !vinculadoAFijo && (
           <label className="text-[13px] text-muted flex items-center gap-1.5 cursor-pointer select-none">
             <input type="checkbox" checked={guardarOtro} onChange={(e) => setGuardarOtro(e.target.checked)} /> Registrar otro
           </label>
@@ -479,23 +559,37 @@ function distribuirPorDefecto(d: Datos, descripcion: string): boolean | null {
   return null
 }
 
-function FormIngreso({ onClose, movimiento }: { onClose: () => void; movimiento: Movimiento | null }) {
+/** Cuenta donde suele llegar un ingreso: la del último ingreso con esa descripción, la del sueldo fijo o la del último ingreso. */
+function cuentaIngresoPorDefecto(d: Datos, descripcion: string): string {
+  const ok = (id: string | null | undefined) => Boolean(id && d.cuentas.some((c) => c.id === id))
+  const ingresos = [...d.movimientos].filter((m) => m.tipo === 'ingreso').sort((a, b) => b.fecha.localeCompare(a.fecha))
+  const mismo = ingresos.find((m) => m.descripcion.trim().toLowerCase() === descripcion.trim().toLowerCase() && ok(m.cuentaDestinoId))
+  if (mismo) return mismo.cuentaDestinoId!
+  const fijo = d.recurrentes.find((r) => r.tipo === 'ingreso' && ok(r.cuentaId))
+  if (fijo) return fijo.cuentaId!
+  const ultimo = ingresos.find((m) => ok(m.cuentaDestinoId))
+  return ultimo?.cuentaDestinoId ?? d.cuentas[0]?.id ?? ''
+}
+
+function FormIngreso({ onClose, movimiento, preset }: { onClose: () => void; movimiento: Movimiento | null; preset: Partial<Movimiento> | null }) {
   const s = useStore()
   const mon = s.ajustes.moneda
   const abrirPagate = useUI((u) => u.abrirPagate)
   const fondos = s.fondos.filter((f) => !f.archivado)
-  const [fecha, setFecha] = useState(movimiento?.fecha ?? hoyISO())
-  const [descripcion, setDescripcion] = useState(movimiento?.descripcion ?? 'Sueldo')
-  const [destino, setDestino] = useState(movimiento?.cuentaDestinoId ?? s.recurrentes.find((r) => r.tipo === 'ingreso' && r.cuentaId)?.cuentaId ?? '')
-  const [monto, setMonto] = useState(movimiento ? String(movimiento.monto).replace('.', ',') : String(s.ajustes.ingresoMensual || ''))
-  const [distribuir, setDistribuir] = useState(movimiento ? movimiento.distribuir !== false : true)
-  const [tocado, setTocado] = useState(Boolean(movimiento))
+  const base: Partial<Movimiento> = movimiento ?? preset ?? {}
+  const [fecha, setFecha] = useState(base.fecha ?? hoyISO())
+  const [descripcion, setDescripcion] = useState(base.descripcion ?? 'Sueldo')
+  const [destino, setDestino] = useState(() => base.cuentaDestinoId ?? cuentaIngresoPorDefecto(s, base.descripcion ?? 'Sueldo'))
+  const [monto, setMonto] = useState(base.monto ? String(base.monto).replace('.', ',') : String(s.ajustes.ingresoMensual || ''))
+  const [distribuir, setDistribuir] = useState(base.distribuir !== false)
+  const [tocado, setTocado] = useState(Boolean(movimiento || preset))
+  const [verReparto, setVerReparto] = useState(false)
   const porDefecto = useMemo(() => Object.fromEntries(fondos.map((f) => [f.id, f.porcentaje])), [fondos])
   const [reparto, setReparto] = useState<Record<string, string>>(() => {
-    const base = movimiento?.reparto ?? porDefecto
-    return Object.fromEntries(fondos.map((f) => [f.id, String(Math.round((base[f.id] ?? 0) * 1000) / 10).replace('.', ',')]))
+    const r = movimiento?.reparto ?? porDefecto
+    return Object.fromEntries(fondos.map((f) => [f.id, String(Math.round((r[f.id] ?? 0) * 1000) / 10).replace('.', ',')]))
   })
-  const [fondoDestino, setFondoDestino] = useState(movimiento?.fondoDestinoId ?? '')
+  const [fondoDestino, setFondoDestino] = useState(base.fondoDestinoId ?? '')
   const saldos = useSaldos()
   const montoN = num(monto)
 
@@ -512,9 +606,12 @@ function FormIngreso({ onClose, movimiento }: { onClose: () => void; movimiento:
     if (tocado) return
     const def = distribuirPorDefecto(s, v)
     if (def !== null) setDistribuir(def)
+    const c = cuentaIngresoPorDefecto(s, v)
+    if (c) setDestino(c)
   }
 
   const validacion = !(montoN > 0) ? 'Ingresa el monto' : !fecha ? 'Falta la fecha' : !destino ? 'Elige dónde lo recibes' : distribuir && totalPct > 1.0001 ? 'El reparto supera el 100%' : null
+  const aviso = validacion ? null : avisoFechaCuenta(s, destino, fecha)
 
   const guardar = () => {
     if (validacion) return
@@ -529,7 +626,7 @@ function FormIngreso({ onClose, movimiento }: { onClose: () => void; movimiento:
       reparto: distribuir ? Object.fromEntries(Object.entries(repartoN).filter(([, v]) => v > 0)) : null,
       fondoOrigenId: null,
       fondoDestinoId: distribuir ? null : fondoDestino || null,
-      recurrenteId: movimiento?.recurrenteId ?? null,
+      recurrenteId: base.recurrenteId ?? null,
     }
     vibrar(18)
     if (movimiento) {
@@ -541,7 +638,7 @@ function FormIngreso({ onClose, movimiento }: { onClose: () => void; movimiento:
     const id = s.agregarMovimiento(datos)
     toast('Ingreso guardado', {
       detalle: distribuir ? `${money(montoN, mon)} repartido entre tus fondos` : `${money(montoN, mon)} sin repartir`,
-      accion: { texto: 'Deshacer', onClick: () => useStore.getState().eliminarMovimiento(id) },
+      accion: { texto: 'Deshacer', onClick: () => useStore.getState().eliminarMovimiento(id, { sinOmitir: true }) },
       duracion: 5000,
     })
     onClose()
@@ -588,47 +685,71 @@ function FormIngreso({ onClose, movimiento }: { onClose: () => void; movimiento:
             setTocado(true)
           }}
           label="Repartir entre mis fondos"
-          descripcion={distribuir ? 'Se reparte con los porcentajes de abajo. Puedes cambiarlos solo para este ingreso.' : 'Para reembolsos, préstamos o dinero que no quieres repartir.'}
+          descripcion={distribuir ? 'Así queda repartido:' : 'Para reembolsos, préstamos o dinero que no quieres repartir.'}
         />
         <AnimatePresence mode="wait" initial={false}>
           {distribuir ? (
             <motion.div key="si" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
               {fondos.length === 0 ? (
                 <p className="text-sm text-muted">Crea fondos en Ajustes para repartir tus ingresos.</p>
+              ) : !verReparto ? (
+                <div>
+                  <ul className="flex flex-wrap gap-1.5">
+                    {fondos
+                      .filter((f) => (montos[f.id] ?? 0) > 0)
+                      .map((f) => (
+                        <li key={f.id} className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${f.tipo === 'ahorro' ? 'bg-ok/12 text-ok' : 'bg-primary-soft text-primary'}`}>
+                          {f.nombre} <span className="num">{money(montos[f.id] ?? 0, mon)}</span>
+                        </li>
+                      ))}
+                  </ul>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-2.5 text-xs">
+                    <span className={totalPct > 1.0001 ? 'text-bad font-semibold' : 'text-muted'}>
+                      {personalizado ? 'Reparto cambiado solo para este ingreso' : 'Con tus porcentajes de siempre'}
+                      {sinAsignar > 0.005 ? `, quedan ${money(sinAsignar, mon)} sin asignar` : ''}
+                    </span>
+                    <button type="button" className="font-bold text-primary" onClick={() => setVerReparto(true)}>
+                      Cambiar porcentajes
+                    </button>
+                  </div>
+                </div>
               ) : (
-                <ul className="space-y-2">
-                  {fondos.map((f) => (
-                    <li key={f.id} className="flex items-center gap-3">
-                      <IconBadge icon={iconoDe(f)} size="sm" color={f.tipo === 'ahorro' ? 'var(--ok)' : 'var(--primary)'} />
-                      <div className="flex-1 min-w-0">
-                        <p className="text-sm font-semibold leading-tight truncate">{f.nombre}</p>
-                        <p className="text-xs text-muted truncate">{s.cuentas.find((c) => c.id === f.cuentaId)?.nombre ?? 'Sin cuenta'}</p>
-                      </div>
-                      <div className="relative w-20 shrink-0">
-                        <input
-                          className="input !min-h-9 !py-1 text-right num !pr-6 text-sm"
-                          inputMode="decimal"
-                          value={reparto[f.id] ?? '0'}
-                          onChange={(e) => setReparto((r) => ({ ...r, [f.id]: e.target.value }))}
-                          aria-label={`Porcentaje para ${f.nombre}`}
-                        />
-                        <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none">%</span>
-                      </div>
-                      <span className="num font-bold text-sm w-24 text-right shrink-0">{money(montos[f.id] ?? 0, mon)}</span>
-                    </li>
-                  ))}
-                </ul>
+                <>
+                  <ul className="space-y-2">
+                    {fondos.map((f) => (
+                      <li key={f.id} className="flex items-center gap-3">
+                        <IconBadge icon={iconoDe(f)} size="sm" color={f.tipo === 'ahorro' ? 'var(--ok)' : 'var(--primary)'} />
+                        <div className="flex-1 min-w-0">
+                          <p className="text-sm font-semibold leading-tight truncate">{f.nombre}</p>
+                          <p className="text-xs text-muted truncate">{s.cuentas.find((c) => c.id === f.cuentaId)?.nombre ?? 'Sin cuenta'}</p>
+                        </div>
+                        <div className="relative w-20 shrink-0">
+                          <input
+                            className="input !min-h-9 !py-1 text-right num !pr-6 text-sm"
+                            inputMode="decimal"
+                            value={reparto[f.id] ?? '0'}
+                            onChange={(e) => setReparto((r) => ({ ...r, [f.id]: e.target.value }))}
+                            aria-label={`Porcentaje para ${f.nombre}`}
+                          />
+                          <span className="absolute right-2.5 top-1/2 -translate-y-1/2 text-muted text-xs pointer-events-none">%</span>
+                        </div>
+                        <span className="num font-bold text-sm w-24 text-right shrink-0">{money(montos[f.id] ?? 0, mon)}</span>
+                      </li>
+                    ))}
+                  </ul>
+                  <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-line text-xs">
+                    <span className={totalPct > 1.0001 ? 'text-bad font-semibold' : 'text-muted'}>
+                      Repartes {Math.round(totalPct * 1000) / 10}%{sinAsignar > 0.005 ? `, quedan ${money(sinAsignar, mon)} sin asignar` : ''}
+                    </span>
+                    {personalizado && (
+                      <button type="button" className="font-bold text-primary inline-flex items-center gap-1" onClick={() => setReparto(Object.fromEntries(fondos.map((f) => [f.id, String(Math.round(f.porcentaje * 1000) / 10).replace('.', ',')])))}>
+                        <RotateCcw size={12} /> Usar mis porcentajes
+                      </button>
+                    )}
+                  </div>
+                  <p className="text-[11px] text-muted mt-2">Este cambio es solo para este ingreso. Tus porcentajes de siempre están en Ajustes.</p>
+                </>
               )}
-              <div className="flex flex-wrap items-center justify-between gap-2 mt-3 pt-3 border-t border-line text-xs">
-                <span className={totalPct > 1.0001 ? 'text-bad font-semibold' : 'text-muted'}>
-                  Repartes {Math.round(totalPct * 1000) / 10}%{sinAsignar > 0.005 ? `, quedan ${money(sinAsignar, mon)} sin asignar` : ''}
-                </span>
-                {personalizado && (
-                  <button type="button" className="font-bold text-primary inline-flex items-center gap-1" onClick={() => setReparto(Object.fromEntries(fondos.map((f) => [f.id, String(Math.round(f.porcentaje * 1000) / 10).replace('.', ',')])))}>
-                    <RotateCcw size={12} /> Usar mis porcentajes
-                  </button>
-                )}
-              </div>
             </motion.div>
           ) : (
             <motion.div key="no" initial={{ opacity: 0, height: 0 }} animate={{ opacity: 1, height: 'auto' }} exit={{ opacity: 0, height: 0 }} className="overflow-hidden">
@@ -645,7 +766,7 @@ function FormIngreso({ onClose, movimiento }: { onClose: () => void; movimiento:
         </button>
       )}
 
-      <Pie validacion={validacion}>
+      <Pie validacion={validacion} aviso={aviso}>
         <button type="submit" className="btn btn-primary min-w-28" disabled={Boolean(validacion)}>
           {movimiento ? 'Guardar cambios' : 'Guardar ingreso'}
         </button>
@@ -661,26 +782,38 @@ function FormMover({ onClose, movimiento, preset }: { onClose: () => void; movim
   const mon = s.ajustes.moneda
   const saldos = useSaldos()
   const fondos = s.fondos.filter((f) => !f.archivado)
-  const base = movimiento ?? preset ?? {}
+  const cuentaDe = (id: string | null | undefined) => (id ? (s.fondos.find((f) => f.id === id)?.cuentaId ?? '') : '')
+  // Sin datos previos se propone apartar para la meta que más lo necesita, desde "sin asignar" o el fondo de gasto con más saldo.
+  const [propuesta] = useState(() => {
+    if (movimiento || preset) return null
+    const pendientes = metas(s).filter((m) => m.faltaEsteMes > 0.5)
+    const destino = pendientes[0]?.fondo.id ?? fondos.find((f) => f.tipo === 'ahorro')?.id ?? ''
+    const origen = saldos.sinAsignar >= 1 ? '' : ([...fondos].filter((f) => f.tipo === 'gasto').sort((a, b) => (saldos.fondos[b.id] ?? 0) - (saldos.fondos[a.id] ?? 0))[0]?.id ?? '')
+    const monto = pendientes[0] ? Math.ceil(pendientes[0].faltaEsteMes) : 0
+    return { fondoOrigenId: origen, fondoDestinoId: destino, monto }
+  })
+  const base: Partial<Movimiento> = movimiento ?? preset ?? propuesta ?? {}
   const [fecha, setFecha] = useState(base.fecha ?? hoyISO())
   const [descripcion, setDescripcion] = useState(base.descripcion ?? '')
   const [monto, setMonto] = useState(base.monto ? String(base.monto).replace('.', ',') : '')
   const [fondoO, setFondoO] = useState(base.fondoOrigenId ?? '')
   const [fondoD, setFondoD] = useState(base.fondoDestinoId ?? '')
-  const [cuentaO, setCuentaO] = useState(base.cuentaOrigenId ?? (base.fondoOrigenId ? (s.fondos.find((f) => f.id === base.fondoOrigenId)?.cuentaId ?? '') : ''))
-  const [cuentaD, setCuentaD] = useState(base.cuentaDestinoId ?? (base.fondoDestinoId ? (s.fondos.find((f) => f.id === base.fondoDestinoId)?.cuentaId ?? '') : ''))
+  const [cuentaO, setCuentaO] = useState(() => base.cuentaOrigenId ?? (cuentaDe(base.fondoOrigenId) || cuentaDe(base.fondoDestinoId) || (s.cuentas[0]?.id ?? '')))
+  const [cuentaD, setCuentaD] = useState(() => base.cuentaDestinoId ?? (cuentaDe(base.fondoDestinoId) || cuentaDe(base.fondoOrigenId) || (s.cuentas[0]?.id ?? '')))
+  const [verCuentas, setVerCuentas] = useState(Boolean(movimiento && movimiento.cuentaOrigenId !== movimiento.cuentaDestinoId))
   const montoN = num(monto)
 
   const elegirO = (id: string) => {
     setFondoO(id)
-    const c = s.fondos.find((f) => f.id === id)?.cuentaId
+    const c = cuentaDe(id)
     if (c) setCuentaO(c)
+    else if (!id && cuentaD) setCuentaO(cuentaD)
   }
   const elegirD = (id: string) => {
     setFondoD(id)
-    const c = s.fondos.find((f) => f.id === id)?.cuentaId
+    const c = cuentaDe(id)
     if (c) setCuentaD(c)
-    if (!cuentaO && c && !fondoO) setCuentaO(c)
+    if (!fondoO && c) setCuentaO(c)
   }
 
   const nombreFondo = (id: string) => (id ? (s.fondos.find((f) => f.id === id)?.nombre ?? '') : 'Sin asignar')
@@ -688,6 +821,7 @@ function FormMover({ onClose, movimiento, preset }: { onClose: () => void; movim
   const mismaCuenta = cuentaO && cuentaO === cuentaD
   const mismoFondo = fondoO === fondoD
   const disponible = fondoO ? (saldos.fondos[fondoO] ?? 0) + (movimiento?.fondoOrigenId === fondoO ? movimiento.monto : 0) : saldos.sinAsignar
+  const mostrarCuentas = verCuentas || !cuentaO || !cuentaD
 
   const validacion = !(montoN > 0)
     ? 'Ingresa el monto'
@@ -698,14 +832,14 @@ function FormMover({ onClose, movimiento, preset }: { onClose: () => void; movim
         : !cuentaD
           ? 'Elige a qué cuenta va'
           : mismaCuenta && mismoFondo
-            ? 'Elige un fondo o una cuenta distinta'
+            ? 'Elige a qué fondo va'
             : null
   const aviso = !validacion && montoN > disponible + 0.005 ? `${nombreFondo(fondoO)} solo tiene ${money(disponible, mon)}` : null
 
   const resumen = validacion
     ? null
     : mismaCuenta
-      ? `Apartas ${money(montoN, mon)} de ${nombreFondo(fondoO)} a ${nombreFondo(fondoD)}. El dinero sigue en ${nombreCuenta(cuentaO)}.`
+      ? `Apartas ${money(montoN, mon)} de ${nombreFondo(fondoO)} para ${nombreFondo(fondoD)}. El dinero sigue en ${nombreCuenta(cuentaO)}.`
       : mismoFondo
         ? `Transfieres ${money(montoN, mon)} de ${nombreCuenta(cuentaO)} a ${nombreCuenta(cuentaD)}. Sigue siendo de ${nombreFondo(fondoO)}.`
         : `Transfieres ${money(montoN, mon)} de ${nombreCuenta(cuentaO)} a ${nombreCuenta(cuentaD)} y pasa de ${nombreFondo(fondoO)} a ${nombreFondo(fondoD)}.`
@@ -730,8 +864,8 @@ function FormMover({ onClose, movimiento, preset }: { onClose: () => void; movim
       toast('Movimiento actualizado')
     } else {
       const id = s.agregarMovimiento(datos)
-      const meta = s.fondos.find((f) => f.id === fondoD)?.meta
-      toast(meta ? `Apartaste ${money(montoN, mon)} para ${nombreFondo(fondoD)}` : 'Movimiento guardado', {
+      const ahorro = s.fondos.find((f) => f.id === fondoD)?.tipo === 'ahorro'
+      toast(ahorro ? `Apartaste ${money(montoN, mon)} para ${nombreFondo(fondoD)}` : 'Movimiento guardado', {
         detalle: resumen ?? undefined,
         accion: { texto: 'Deshacer', onClick: () => useStore.getState().eliminarMovimiento(id) },
         duracion: 5000,
@@ -748,6 +882,17 @@ function FormMover({ onClose, movimiento, preset }: { onClose: () => void; movim
     onClose()
   }
 
+  const selectCuenta = (valor: string, cambiar: (v: string) => void, etiqueta: string, prefijo: string) => (
+    <select className="input !min-h-10 text-sm" value={valor} onChange={(e) => cambiar(e.target.value)} aria-label={etiqueta}>
+      <option value="">{etiqueta}</option>
+      {s.cuentas.map((c) => (
+        <option key={c.id} value={c.id}>
+          {prefijo} {c.nombre}
+        </option>
+      ))}
+    </select>
+  )
+
   return (
     <form
       className="space-y-5"
@@ -756,20 +901,14 @@ function FormMover({ onClose, movimiento, preset }: { onClose: () => void; movim
         guardar()
       }}
     >
+      {!movimiento && <p className="text-sm text-muted -mt-1">Pasa dinero a un fondo de ahorro o meta, o muévelo entre tus cuentas.</p>}
       <MontoInput value={monto} onChange={setMonto} moneda={mon} />
 
       <div className="rounded-2xl border border-line p-4 space-y-3">
         <Field label="Sale de" grupo>
           <ChipsFondo fondos={fondos} value={fondoO} onChange={elegirO} saldos={saldos.fondos} sinAsignar={saldos.sinAsignar} conSinAsignar mon={mon} />
         </Field>
-        <select className="input !min-h-10 text-sm" value={cuentaO} onChange={(e) => setCuentaO(e.target.value)} aria-label="Cuenta de origen">
-          <option value="">Cuenta de origen</option>
-          {s.cuentas.map((c) => (
-            <option key={c.id} value={c.id}>
-              Desde {c.nombre}
-            </option>
-          ))}
-        </select>
+        {mostrarCuentas && selectCuenta(cuentaO, setCuentaO, 'Cuenta de origen', 'Desde')}
       </div>
 
       <div className="flex justify-center -my-2">
@@ -780,19 +919,20 @@ function FormMover({ onClose, movimiento, preset }: { onClose: () => void; movim
 
       <div className="rounded-2xl border border-line p-4 space-y-3">
         <Field label="Va a" grupo>
-          <ChipsFondo fondos={fondos} value={fondoD} onChange={elegirD} saldos={saldos.fondos} sinAsignar={saldos.sinAsignar} conSinAsignar mon={mon} />
+          <div className="space-y-2.5">
+            <ChipsFondo fondos={fondos.filter((f) => f.tipo === 'ahorro')} value={fondoD} onChange={elegirD} saldos={saldos.fondos} mon={mon} />
+            <ChipsFondo fondos={fondos.filter((f) => f.tipo === 'gasto')} value={fondoD} onChange={elegirD} saldos={saldos.fondos} sinAsignar={saldos.sinAsignar} conSinAsignar mon={mon} />
+          </div>
         </Field>
-        <select className="input !min-h-10 text-sm" value={cuentaD} onChange={(e) => setCuentaD(e.target.value)} aria-label="Cuenta de destino">
-          <option value="">Cuenta de destino</option>
-          {s.cuentas.map((c) => (
-            <option key={c.id} value={c.id}>
-              A {c.nombre}
-            </option>
-          ))}
-        </select>
+        {mostrarCuentas && selectCuenta(cuentaD, setCuentaD, 'Cuenta de destino', 'A')}
       </div>
 
       {resumen && <p className="rounded-2xl bg-primary-soft/60 text-sm px-4 py-3 leading-snug">{resumen}</p>}
+      {!mostrarCuentas && (
+        <button type="button" className="text-sm font-bold text-primary -mt-2" onClick={() => setVerCuentas(true)}>
+          Mover entre cuentas (por ejemplo, del banco a efectivo)
+        </button>
+      )}
 
       <Field label="Descripción (opcional)">
         <input className="input" placeholder={mismaCuenta ? 'Aporte a la meta' : 'Motivo'} value={descripcion} onChange={(e) => setDescripcion(e.target.value)} />
@@ -876,22 +1016,4 @@ function FormAjuste({ onClose, movimiento }: { onClose: () => void; movimiento: 
 
 function IconoMetodo({ nombre }: { nombre: string }) {
   return createElement(iconoMetodo(nombre), { size: 17, className: 'absolute left-3 top-1/2 -translate-y-1/2 text-muted pointer-events-none' })
-}
-
-function Mini({ k, v, cls }: { k: string; v: string; cls: string }) {
-  return (
-    <div className="bg-surface px-3 py-2.5 min-w-0">
-      <p className="text-[11px] text-muted">{k}</p>
-      <p className={`num text-[13px] font-bold truncate ${cls}`}>{v}</p>
-    </div>
-  )
-}
-
-function Linea({ k, v, cls = '' }: { k: string; v: string; cls?: string }) {
-  return (
-    <div className="flex justify-between gap-3">
-      <span className="text-muted">{k}</span>
-      <span className={`num font-semibold ${cls}`}>{v}</span>
-    </div>
-  )
 }

@@ -1,6 +1,6 @@
 import { AnimatePresence, animate, motion, useDragControls, useReducedMotion, type DragControls, type PanInfo } from 'motion/react'
 import { CircleAlert, CircleCheck, ChevronLeft, ChevronRight, Info, TriangleAlert, X, type LucideIcon } from 'lucide-react'
-import { useEffect, useId, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react'
+import { useEffect, useId, useLayoutEffect, useRef, useState, type InputHTMLAttributes, type ReactNode } from 'react'
 import type { Estado } from '../types'
 import { mesActual, nombreMes, num } from '../lib/format'
 import { mesMas } from '../lib/calc'
@@ -270,6 +270,24 @@ export function Segmented<T extends string | number>({
 
 /* ───────────────────────── Hoja / diálogo ───────────────────────── */
 
+/** Diálogos abiertos, del más antiguo al más reciente. Solo el último atiende Escape y Tab. */
+const pilaModales: string[] = []
+let bloqueos = 0
+let overflowPrevio = ''
+function bloquearScroll() {
+  if (bloqueos++ === 0) {
+    overflowPrevio = document.body.style.overflow
+    document.body.style.overflow = 'hidden'
+  }
+}
+function liberarScroll() {
+  bloqueos = Math.max(0, bloqueos - 1)
+  if (bloqueos === 0) document.body.style.overflow = overflowPrevio
+}
+export const hayModalAbierto = () => pilaModales.length > 0
+const ENFOCABLES = 'a[href],button:not([disabled]),input:not([disabled]),select:not([disabled]),textarea:not([disabled]),[tabindex]:not([tabindex="-1"])'
+
+
 export function Modal({
   open,
   onClose,
@@ -287,17 +305,53 @@ export function Modal({
 }) {
   const movil = useEsMovil()
   const drag = useDragControls()
+  const id = useId()
+  const tituloId = `${id}-titulo`
+  const panel = useRef<HTMLDivElement>(null)
+  // onClose suele ser una función nueva en cada render: se guarda en una ref para no re-suscribir el teclado.
+  const cerrarRef = useRef(onClose)
+  useLayoutEffect(() => {
+    cerrarRef.current = onClose
+  })
   useEffect(() => {
     if (!open) return
-    const onKey = (e: KeyboardEvent) => e.key === 'Escape' && onClose()
-    window.addEventListener('keydown', onKey)
-    const prev = document.body.style.overflow
-    document.body.style.overflow = 'hidden'
-    return () => {
-      window.removeEventListener('keydown', onKey)
-      document.body.style.overflow = prev
+    pilaModales.push(id)
+    bloquearScroll()
+    const opener = document.activeElement instanceof HTMLElement ? document.activeElement : null
+    const onKey = (e: KeyboardEvent) => {
+      // Solo el diálogo de arriba responde (por ejemplo, una confirmación sobre la hoja de registro).
+      if (pilaModales[pilaModales.length - 1] !== id) return
+      if (e.key === 'Escape') {
+        e.preventDefault()
+        cerrarRef.current()
+      } else if (e.key === 'Tab' && panel.current) {
+        const foco = [...panel.current.querySelectorAll<HTMLElement>(ENFOCABLES)].filter((el) => el.offsetParent !== null)
+        if (foco.length === 0) return
+        const primero = foco[0]
+        const ultimo = foco[foco.length - 1]
+        const dentro = panel.current.contains(document.activeElement)
+        if (e.shiftKey && (!dentro || document.activeElement === primero || document.activeElement === panel.current)) {
+          e.preventDefault()
+          ultimo.focus()
+        } else if (!e.shiftKey && (!dentro || document.activeElement === ultimo)) {
+          e.preventDefault()
+          primero.focus()
+        }
+      }
     }
-  }, [open, onClose])
+    window.addEventListener('keydown', onKey)
+    const raf = requestAnimationFrame(() => {
+      if (panel.current && !panel.current.contains(document.activeElement)) panel.current.focus({ preventScroll: true })
+    })
+    return () => {
+      cancelAnimationFrame(raf)
+      window.removeEventListener('keydown', onKey)
+      const i = pilaModales.lastIndexOf(id)
+      if (i >= 0) pilaModales.splice(i, 1)
+      liberarScroll()
+      if (opener && opener.isConnected) opener.focus({ preventScroll: true })
+    }
+  }, [open, id])
 
   const onDragEnd = (_: unknown, info: PanInfo) => {
     if (info.offset.y > 120 || info.velocity.y > 600) onClose()
@@ -306,7 +360,7 @@ export function Modal({
   return (
     <AnimatePresence>
       {open && (
-        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-6" role="dialog" aria-modal="true">
+        <div className="fixed inset-0 z-50 flex items-end md:items-center justify-center md:p-6" role="dialog" aria-modal="true" aria-labelledby={tituloId}>
           <motion.div
             className="absolute inset-0 bg-[#0b0c1a]/50 backdrop-blur-[3px]"
             onClick={onClose}
@@ -316,7 +370,9 @@ export function Modal({
             transition={{ duration: 0.2 }}
           />
           <motion.div
-            className={`relative w-full ${wide ? 'md:max-w-3xl' : 'md:max-w-lg'} max-h-[94dvh] md:max-h-[88dvh] flex flex-col bg-surface border border-line rounded-t-[1.75rem] md:rounded-[1.5rem] shadow-[var(--shadow-lg)]`}
+            ref={panel}
+            tabIndex={-1}
+            className={`relative outline-none w-full ${wide ? 'md:max-w-3xl' : 'md:max-w-lg'} max-h-[94dvh] md:max-h-[88dvh] flex flex-col bg-surface border border-line rounded-t-[1.75rem] md:rounded-[1.5rem] shadow-[var(--shadow-lg)]`}
             initial={movil ? { y: '100%' } : { opacity: 0, scale: 0.96, y: 12 }}
             animate={movil ? { y: 0 } : { opacity: 1, scale: 1, y: 0 }}
             exit={movil ? { y: '100%' } : { opacity: 0, scale: 0.97, y: 8 }}
@@ -328,7 +384,7 @@ export function Modal({
             dragElastic={{ top: 0, bottom: 0.7 }}
             onDragEnd={onDragEnd}
           >
-            <DragHeader movil={movil} title={title} onClose={onClose} drag={drag} />
+            <DragHeader movil={movil} title={title} tituloId={tituloId} onClose={onClose} drag={drag} />
             <div className="flex-1 overflow-y-auto overscroll-contain px-4 md:px-5 pb-4 md:pb-5 pt-1">{children}</div>
             {footer && <div className="border-t border-line px-4 md:px-5 py-3 safe-bottom">{footer}</div>}
             {!footer && <div className="safe-bottom" />}
@@ -339,13 +395,13 @@ export function Modal({
   )
 }
 
-function DragHeader({ movil, title, onClose, drag }: { movil: boolean; title: ReactNode; onClose: () => void; drag: DragControls }) {
+function DragHeader({ movil, title, tituloId, onClose, drag }: { movil: boolean; title: ReactNode; tituloId: string; onClose: () => void; drag: DragControls }) {
   // En móvil se arrastra la cabecera hacia abajo para cerrar la hoja.
   return (
     <div className={`shrink-0 ${movil ? 'touch-none cursor-grab' : ''}`} onPointerDown={(e) => movil && drag.start(e)}>
       {movil && <div className="mx-auto mt-2.5 h-1.5 w-10 rounded-full bg-surface-3" />}
       <div className="flex items-center justify-between gap-3 px-4 md:px-5 pt-3 pb-3">
-        <h2 className="font-extrabold text-lg tracking-tight">{title}</h2>
+        <h2 id={tituloId} className="font-extrabold text-lg tracking-tight">{title}</h2>
         <button className="btn btn-icon text-muted" onPointerDown={(e) => e.stopPropagation()} onClick={onClose} aria-label="Cerrar">
           <X size={20} />
         </button>
