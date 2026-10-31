@@ -125,7 +125,7 @@ function Presupuesto({ mes }: { mes: string }) {
                   <div className="flex items-baseline justify-between gap-3">
                     <p className="font-semibold truncate">{c.categoria.nombre}</p>
                     <p className={`num text-sm font-bold shrink-0 ${c.disponible < 0 ? 'text-bad' : ''}`}>
-                      {c.presupuesto <= 0 && c.gastado <= 0 ? <span className="text-muted font-semibold">Sin presupuesto</span> : <>{c.disponible < 0 ? 'Excede ' : 'Quedan '}{money(Math.abs(c.disponible), mon)}</>}
+                      {!c.categoria.id ? <span className="text-muted font-semibold">Gastos de categorías eliminadas</span> : c.presupuesto <= 0 && c.gastado <= 0 ? <span className="text-muted font-semibold">Sin presupuesto</span> : <>{c.disponible < 0 ? 'Excede ' : 'Quedan '}{money(Math.abs(c.disponible), mon)}</>}
                     </p>
                   </div>
                   <div className="my-1.5">
@@ -216,6 +216,12 @@ function sugerirFijos(s: ReturnType<typeof useStore.getState>, mes: string): Sug
     out.push({ descripcion: ult.descripcion, monto: Math.round(prom * 100) / 100, dia: Number(ult.fecha.slice(8, 10)), categoriaId: ult.categoriaId, fondoId: ult.fondoId, cuentaId: ult.cuentaId, metodoId: ult.metodoId })
   }
   return out.slice(0, 5)
+}
+
+/** Cuenta donde suelen llegar los ingresos: la del último ingreso registrado o la primera cuenta. */
+function cuentaDeIngresos(s: ReturnType<typeof useStore.getState>): string {
+  const ultimo = [...s.movimientos].filter((m) => m.tipo === 'ingreso' && m.cuentaDestinoId && s.cuentas.some((c) => c.id === m.cuentaDestinoId)).sort((a, b) => b.fecha.localeCompare(a.fecha))[0]
+  return ultimo?.cuentaDestinoId ?? s.cuentas[0]?.id ?? ''
 }
 
 const omitido = (r: Recurrente, mes: string) => (r.omitidos ?? []).includes(mes)
@@ -371,7 +377,7 @@ function FormFijo({ r, base, onClose }: { r: Recurrente | null; base?: Partial<R
   const [mesAnual, setMesAnual] = useState(() => String(ini.mesAnual ?? Number(hoyISO().slice(5, 7))))
   const [categoriaId, setCategoriaId] = useState(ini.categoriaId ?? '')
   const [fondoId, setFondoId] = useState(r ? (r.fondoId ?? '') : (ini.fondoId ?? (ini.tipo === 'ingreso' ? '' : defecto.fondoId)))
-  const [cuentaId, setCuentaId] = useState(r ? (r.cuentaId ?? '') : (ini.cuentaId ?? (ini.tipo === 'ingreso' ? (s.cuentas[0]?.id ?? '') : defecto.cuentaId)))
+  const [cuentaId, setCuentaId] = useState(r ? (r.cuentaId ?? '') : (ini.cuentaId ?? (ini.tipo === 'ingreso' ? cuentaDeIngresos(s) : defecto.cuentaId)))
   const [metodoId, setMetodoId] = useState(r ? (r.metodoId ?? '') : (ini.metodoId ?? defecto.metodoId))
   const [distribuir, setDistribuir] = useState(ini.distribuir ?? true)
   const [auto, setAuto] = useState(ini.auto ?? false)
@@ -441,7 +447,10 @@ function FormFijo({ r, base, onClose }: { r: Recurrente | null; base?: Partial<R
           value={tipo}
           onChange={(t) => {
             setTipo(t)
-            if (t === 'ingreso' && !tocado) setFondoId('')
+            if (t === 'ingreso' && !tocado) {
+              setFondoId('')
+              setCuentaId(cuentaDeIngresos(s))
+            }
           }}
           options={[
             { id: 'gasto', label: 'Gasto fijo', icon: ShoppingBag },

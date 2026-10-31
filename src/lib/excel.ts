@@ -506,9 +506,9 @@ function monto(v: unknown): number {
 const RE_ENCABEZADO = /^(fecha|categor[ií]a|cuenta|fondo|m[eé]todo( de pago)?)$/i
 
 /** Busca la fila de encabezados y devuelve las filas siguientes hasta la primera vacía, sin la fila Total. */
-function tabla(ws: XLSX.WorkSheet): Fila[] {
+function tabla(ws: XLSX.WorkSheet, encabezado: RegExp = RE_ENCABEZADO): Fila[] {
   const rows = XLSX.utils.sheet_to_json<unknown[]>(ws, { header: 1, defval: null, raw: true })
-  const h = rows.findIndex((r) => r.some((c) => typeof c === 'string' && RE_ENCABEZADO.test(c.trim())))
+  const h = rows.findIndex((r) => r.some((c) => typeof c === 'string' && encabezado.test(c.trim())))
   if (h < 0) return []
   const headers = rows[h].map((c) => texto(c))
   const out: Fila[] = []
@@ -950,7 +950,7 @@ function importarLibro(wb: XLSX.WorkBook, base: Datos, archivo: string, formato:
       const n = monto(v)
       return Math.abs(n) > 1 ? n / 100 : n
     }
-    for (const f of tabla(wsEsc)) {
+    for (const f of tabla(wsEsc, /^nombre$/i)) {
       const nombre = texto(colX(f, 'Nombre'))
       if (!nombre) continue
       let compras: Escenario['compras'] = []

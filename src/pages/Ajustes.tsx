@@ -36,8 +36,13 @@ export function Ajustes() {
     if (usada && s.categorias.length > 1) setMover({ tipo: 'categoria', id })
     else void eliminar('la categoría', `"${c?.nombre}" no tiene gastos.`, () => s.eliminarCategoria(id))
   }
-  /** Al poner un saldo inicial a una cuenta o fondo que empezaba "desde siempre", se toma como el saldo de hoy. */
-  const fechaParaSaldo = (fechaSaldo: string, n: number) => (n !== 0 && fechaSaldo < '1900' ? hoyISO() : fechaSaldo)
+  /**
+   * Al poner un saldo inicial a una cuenta o fondo que empezaba "desde siempre", se toma como el saldo que tenía
+   * antes de su primer registro (así los registros ya hechos siguen contando). Sin registros, es el saldo de hoy.
+   */
+  const fechaParaSaldo = (fechaSaldo: string, n: number, fechas: string[]) => (n !== 0 && fechaSaldo < '1900' ? (fechas.filter(Boolean).sort()[0] ?? hoyISO()) : fechaSaldo)
+  const fechasCuenta = (id: string) => [...s.gastos.filter((g) => g.cuentaId === id).map((g) => g.fecha), ...s.movimientos.filter((m) => m.cuentaOrigenId === id || m.cuentaDestinoId === id).map((m) => m.fecha)]
+  const fechasFondo = (id: string) => [...s.gastos.filter((g) => g.fondoId === id).map((g) => g.fecha), ...s.movimientos.filter((m) => m.fondoOrigenId === id || m.fondoDestinoId === id || (m.tipo === 'ingreso' && m.distribuir !== false)).map((m) => m.fecha)]
 
   const eliminar = async (que: string, texto: string, accion: () => void) => {
     if (await confirmar(`¿Eliminar ${que}?`, { texto, aceptar: 'Eliminar', peligro: true })) {
@@ -132,7 +137,7 @@ export function Ajustes() {
                       <option key={t}>{t}</option>
                     ))}
                   </select>
-                  <CampoNumero className="!min-h-10 text-sm text-right" valor={c.saldoInicial} onValor={(n) => s.guardarCuenta({ ...c, saldoInicial: n, fechaSaldo: fechaParaSaldo(c.fechaSaldo, n) })} aria-label="Saldo inicial" />
+                  <CampoNumero className="!min-h-10 text-sm text-right" valor={c.saldoInicial} onValor={(n) => s.guardarCuenta({ ...c, saldoInicial: n, fechaSaldo: fechaParaSaldo(c.fechaSaldo, n, fechasCuenta(c.id)) })} aria-label="Saldo inicial" />
                   {c.fechaSaldo > '1900' && (
                     <input className="input !min-h-10 text-sm col-span-2 sm:col-span-1" type="date" value={c.fechaSaldo} onChange={(e) => s.guardarCuenta({ ...c, fechaSaldo: e.target.value || DESDE_SIEMPRE })} aria-label="Fecha del saldo" title="Fecha de ese saldo: los registros anteriores no lo cambian" />
                   )}
@@ -211,7 +216,7 @@ export function Ajustes() {
                     <div className="block sm:col-span-2">
                       <span className="block text-[11px] font-semibold text-muted mb-1">Saldo inicial{f.fechaSaldo > '1900' ? ' y su fecha' : ''}</span>
                       <div className="flex gap-1.5">
-                        <CampoNumero className="!min-h-10 text-sm text-right flex-1 min-w-0" valor={f.saldoInicial} onValor={(n) => s.guardarFondo({ ...f, saldoInicial: n, fechaSaldo: fechaParaSaldo(f.fechaSaldo, n) })} aria-label="Saldo inicial del fondo" />
+                        <CampoNumero className="!min-h-10 text-sm text-right flex-1 min-w-0" valor={f.saldoInicial} onValor={(n) => s.guardarFondo({ ...f, saldoInicial: n, fechaSaldo: fechaParaSaldo(f.fechaSaldo, n, fechasFondo(f.id)) })} aria-label="Saldo inicial del fondo" />
                         {f.fechaSaldo > '1900' && (
                           <input className="input !min-h-10 text-sm !w-[9.5rem] shrink-0" type="date" value={f.fechaSaldo} onChange={(e) => s.guardarFondo({ ...f, fechaSaldo: e.target.value || DESDE_SIEMPRE })} aria-label="Fecha del saldo del fondo" />
                         )}
