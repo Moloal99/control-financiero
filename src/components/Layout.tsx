@@ -7,6 +7,7 @@ import { useState, type ReactNode } from 'react'
 import { useStore } from '../store'
 import { vibrar } from '../lib/feedback'
 import { Modal } from './ui'
+import { IndicadorSync } from './Sync'
 
 export type Vista = 'inicio' | 'movimientos' | 'metas' | 'cuentas' | 'plan' | 'analisis' | 'datos' | 'ajustes'
 
@@ -91,6 +92,7 @@ export function Layout({
             <Plus size={20} strokeWidth={2.6} /> <span className="hidden lg:inline">Registrar</span>
           </button>
           <div className="flex flex-col lg:flex-row gap-1">
+            <IndicadorSync claro />
             <button className="btn flex-1 !px-0 text-rail-ink hover:bg-white/8 relative" onClick={onAlertas} title="Avisos">
               <Bell size={18} />
               <span className="hidden lg:inline">Avisos</span>
@@ -113,6 +115,7 @@ export function Layout({
               <p className="font-extrabold text-[17px] tracking-tight truncate">{actual.nombre}</p>
             </div>
             <div className="flex items-center">
+              <IndicadorSync />
               <button className="btn btn-icon text-muted relative" onClick={onAlertas} aria-label={`Avisos${nAlertas ? ` (${nAlertas})` : ''}`}>
                 <Bell size={20} />
                 {nAlertas > 0 && <Contador n={nAlertas} />}
