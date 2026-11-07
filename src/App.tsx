@@ -11,7 +11,9 @@ import { hoyISO, mesActual } from './lib/format'
 import { irA, useUI } from './lib/ui'
 import { Inicio } from './pages/Inicio'
 import { Movimientos } from './pages/Movimientos'
-import { CLAVE_DATOS, useStore } from './store'
+import { CLAVE_DATOS, exportarDatos, useStore } from './store'
+import { AvisoRecuperar } from './components/Recuperar'
+import { guardarCopiaAutomatica, pedirAlmacenamientoPersistente } from './lib/respaldo'
 
 const Metas = lazy(() => import('./pages/Metas').then((m) => ({ default: m.Metas })))
 const Cuentas = lazy(() => import('./pages/Cuentas').then((m) => ({ default: m.Cuentas })))
@@ -70,6 +72,26 @@ export default function App() {
     const f = () => setVista(vistaDesdeHash())
     window.addEventListener('hashchange', f)
     return () => window.removeEventListener('hashchange', f)
+  }, [])
+
+  // Copia automática diaria en otro almacén del dispositivo y pedido de almacenamiento persistente,
+  // para que el navegador no borre los datos.
+  useEffect(() => {
+    let t: number | undefined
+    const copiar = () => {
+      window.clearTimeout(t)
+      t = window.setTimeout(() => {
+        const d = exportarDatos(useStore.getState())
+        void guardarCopiaAutomatica(d)
+        if (d.gastos.length + d.movimientos.length > 0) void pedirAlmacenamientoPersistente()
+      }, 4000)
+    }
+    copiar()
+    const quitar = useStore.subscribe(copiar)
+    return () => {
+      quitar()
+      window.clearTimeout(t)
+    }
   }, [])
 
   // Al abrir (y al volver a la app otro día): registra los fijos automáticos vencidos.
@@ -153,7 +175,7 @@ export default function App() {
           <motion.div key={vista} initial={{ opacity: 0, y: 10 }} animate={{ opacity: 1, y: 0 }} exit={{ opacity: 0, y: -6 }} transition={{ duration: 0.18, ease: [0.22, 1, 0.36, 1] }}>
             <Suspense fallback={<div className="h-64 rounded-[1.25rem] bg-surface-2 animate-pulse" />}>
               {vista === 'inicio' && <Inicio oscuro={oscuro} alertas={visibles} onDescartar={descartar} />}
-              {vista === 'movimientos' && <Movimientos mes={mes} />}
+              {vista === 'movimientos' && <Movimientos mes={mes} onMes={setMes} />}
               {vista === 'metas' && <Metas />}
               {vista === 'cuentas' && <Cuentas mes={mes} />}
               {vista === 'plan' && <Plan mes={mes} />}
@@ -167,6 +189,7 @@ export default function App() {
 
       <Registrar />
       <Pagate />
+      <AvisoRecuperar />
       <Modal open={ui.alertas} onClose={() => ui.setAlertas(false)} title="Avisos">
         <ListaAlertas alertas={visibles} onDescartar={descartar} onIr={() => ui.setAlertas(false)} />
       </Modal>

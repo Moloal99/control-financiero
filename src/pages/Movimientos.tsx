@@ -15,7 +15,7 @@ type Item =
   | { kind: 'gasto'; fecha: string; id: string; g: Gasto }
   | { kind: 'mov'; fecha: string; id: string; m: Movimiento }
 
-export function Movimientos({ mes }: { mes: string }) {
+export function Movimientos({ mes, onMes }: { mes: string; onMes?: (m: string) => void }) {
   const s = useStore()
   const abrir = useUI((u) => u.abrirRegistro)
   const onEditarGasto = (g: Gasto) => abrir({ gasto: g })
@@ -25,6 +25,11 @@ export function Movimientos({ mes }: { mes: string }) {
   const [q, setQ] = useState('')
   const [cat, setCat] = useState('')
   const mon = s.ajustes.moneda
+  // Último mes anterior con registros: al empezar un mes nuevo la lista queda vacía y es fácil pensar que se perdieron.
+  const mesConDatos = useMemo(() => {
+    const meses = [...s.gastos.map((g) => g.fecha.slice(0, 7)), ...s.movimientos.map((m) => m.fecha.slice(0, 7))].filter((m) => m < mes).sort()
+    return meses[meses.length - 1] ?? null
+  }, [s.gastos, s.movimientos, mes])
 
   const items = useMemo(() => {
     const ql = q.trim().toLowerCase()
@@ -174,12 +179,19 @@ export function Movimientos({ mes }: { mes: string }) {
               icon={Inbox}
               title={`Sin registros en ${nombreMes(mes)}`}
               action={
-                <button className="btn btn-primary" onClick={onRegistrar}>
-                  <Plus size={18} /> Registrar
-                </button>
+                <div className="flex flex-col sm:flex-row gap-2 justify-center">
+                  {mesConDatos && onMes && (
+                    <button className="btn btn-soft" onClick={() => onMes(mesConDatos)}>
+                      Ver {nombreMes(mesConDatos).toLowerCase()}
+                    </button>
+                  )}
+                  <button className="btn btn-primary" onClick={onRegistrar}>
+                    <Plus size={18} /> Registrar
+                  </button>
+                </div>
               }
             >
-              Registra un gasto, un ingreso o una transferencia, o importa tus datos desde Excel.
+              {mesConDatos ? `Este mes aún no tiene registros. Tus registros anteriores siguen guardados: el último mes con datos es ${nombreMes(mesConDatos).toLowerCase()}.` : 'Registra un gasto, un ingreso o una transferencia, o importa tus datos desde Excel.'}
             </Empty>
           )}
         </Card>
