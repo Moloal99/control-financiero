@@ -5,6 +5,8 @@ import {
 } from 'lucide-react'
 import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { CLAVE_RESPALDO_MIGRACION, exportarDatos, useStore } from '../store'
+import { marcarRespaldoDescargado } from '../lib/respaldo'
+import { CopiasGuardadas } from '../components/Recuperar'
 import { normalizar } from '../lib/migrar'
 import { confirmar, toast, vibrar } from '../lib/feedback'
 import { fechaCorta, hoyISO, money, nombreMes } from '../lib/format'
@@ -24,6 +26,7 @@ export function Datos({ mes }: { mes: string }) {
         <Importar />
       </div>
       <Respaldo />
+      <CopiasGuardadas />
     </div>
   )
 }
@@ -54,6 +57,7 @@ function Exportar({ mes }: { mes: string }) {
     try {
       const lib = await import('../lib/excel')
       const opciones = { desde: limites.desde, hasta: limites.hasta, titulo: `Control Financiero, ${limites.etiqueta}` }
+      if (rango === 'todo' && formato === 'xlsx') marcarRespaldoDescargado()
       const sufijo = rango === 'todo' ? hoyISO() : rango === 'mes' ? mes : rango === 'anio' ? mes.slice(0, 4) : `${desde}_a_${hasta}`
       if (formato === 'xlsx') lib.descargar(await lib.exportarExcel(exportarDatos(s), opciones), `control-financiero-${sufijo}.xlsx`)
       else lib.descargar(lib.exportarCSV(exportarDatos(s), opciones), `control-financiero-${sufijo}.csv`)
@@ -420,7 +424,8 @@ function Respaldo() {
   const respaldo = async () => {
     const { descargar } = await import('../lib/excel')
     descargar(new Blob([JSON.stringify(exportarDatos(s), null, 2)], { type: 'application/json' }), `respaldo-control-financiero-${hoyISO()}.json`)
-    toast('Respaldo descargado', { detalle: 'Para restaurarlo, arrástralo en Cargar datos' })
+    marcarRespaldoDescargado()
+    toast('Respaldo descargado', { detalle: 'Guárdalo en Drive o envíatelo por correo. Para restaurarlo, cárgalo aquí mismo.' })
   }
   const [previo] = useState<{ guardado: string; datos: unknown } | null>(() => {
     try {

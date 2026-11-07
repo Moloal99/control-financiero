@@ -1,8 +1,9 @@
 import { AnimatePresence, motion } from 'motion/react'
-import { ArrowDownLeft, ArrowRight, CalendarClock, ShoppingBag, CalendarDays, ChartPie, Check, CircleCheck, Gauge, Inbox, PiggyBank, Plus, Sparkles, Target, TrendingUp, TriangleAlert, Wallet, X } from 'lucide-react'
+import { ArrowDownLeft, ArrowRight, CalendarClock, Download, ShieldCheck, ShoppingBag, CalendarDays, ChartPie, Check, CircleCheck, Gauge, Inbox, PiggyBank, Plus, Sparkles, Target, TrendingUp, TriangleAlert, Wallet, X } from 'lucide-react'
 import { useMemo, useState } from 'react'
 import { Area, AreaChart, CartesianGrid, Cell, ComposedChart, Line, Pie, PieChart, ResponsiveContainer, Tooltip, XAxis, YAxis } from 'recharts'
-import { useStore, CLAVE_AVISO_MIGRACION } from '../store'
+import { useStore, CLAVE_AVISO_MIGRACION, exportarDatos } from '../store'
+import { diasDesdeUltimoRespaldo, marcarRespaldoDescargado } from '../lib/respaldo'
 import { CATEGORIA_SIN, acumuladoDiario, mesInicioDatos, metas as calcularMetas, ocurrenciasPendientes, puedesGastar, resumenFondos, resumenMes, seriePatrimonio, type Alerta } from '../lib/calc'
 import type { InformeMigracion as Informe } from '../lib/migrar'
 import { registrarFijo, registrarFijoConCambios } from '../lib/acciones'
@@ -29,6 +30,7 @@ export function Inicio({ oscuro, alertas, onDescartar }: { oscuro: boolean; aler
       <AvisoMigracion />
       <Hero pg={pg} ahorro={f.ahorroTotal} total={f.saldoTotalCuentas} sinAsignar={f.sinAsignar} mon={mon} />
       <AccionesRapidas />
+      <RecordatorioRespaldo />
 
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
         <Card
@@ -202,6 +204,42 @@ function Stat({ k, v, destacado = false, alerta = false, onClick }: { k: string;
       </p>
       <p className="num font-extrabold text-base md:text-lg leading-tight mt-0.5 truncate">{v}</p>
     </Tag>
+  )
+}
+
+/* ───────────────────────── Recordatorio de respaldo ───────────────────────── */
+
+/** Los datos viven solo en este dispositivo: cada 30 días se recuerda descargar un respaldo. */
+function RecordatorioRespaldo() {
+  const s = useStore()
+  const [oculto, setOculto] = useState(false)
+  const registros = s.gastos.length + s.movimientos.length
+  const dias = diasDesdeUltimoRespaldo()
+  if (oculto || registros < 15 || (dias !== null && dias < 30)) return null
+  const descargarYa = async () => {
+    const { descargar } = await import('../lib/excel')
+    descargar(new Blob([JSON.stringify(exportarDatos(s), null, 2)], { type: 'application/json' }), `respaldo-control-financiero-${hoyISO()}.json`)
+    marcarRespaldoDescargado()
+    setOculto(true)
+  }
+  return (
+    <div className="card p-4 flex flex-col sm:flex-row sm:items-center gap-3">
+      <div className="flex items-start gap-3 flex-1 min-w-0">
+        <IconBadge icon={ShieldCheck} color="var(--ok)" />
+        <div className="min-w-0">
+          <p className="font-bold text-sm">Guarda una copia de tus datos</p>
+          <p className="text-xs text-muted leading-snug">{dias === null ? 'Aún no descargaste un respaldo.' : `Tu último respaldo es de hace ${dias} días.`} Tus datos viven solo en este dispositivo: guárdalo en Drive o envíatelo por correo.</p>
+        </div>
+      </div>
+      <div className="flex gap-2 shrink-0">
+        <button className="btn btn-ghost !min-h-9 text-sm" onClick={() => setOculto(true)}>
+          Luego
+        </button>
+        <button className="btn btn-primary !min-h-9 text-sm" onClick={descargarYa}>
+          <Download size={15} /> Descargar
+        </button>
+      </div>
+    </div>
   )
 }
 
