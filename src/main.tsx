@@ -4,8 +4,11 @@ import '@fontsource-variable/plus-jakarta-sans'
 import './index.css'
 import App from './App.tsx'
 import { ErrorBoundary } from './components/ErrorBoundary'
+import { iniciarSync } from './lib/sync/motor'
 
-createRoot(document.getElementById('root')!).render(
+// Si vuelve de Google o hay que renovar el permiso de Drive, se resuelve antes de dibujar.
+if (iniciarSync())
+  createRoot(document.getElementById('root')!).render(
   <StrictMode>
     <ErrorBoundary>
       <App />

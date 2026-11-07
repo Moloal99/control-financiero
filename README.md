@@ -93,3 +93,22 @@ Toda la lógica de cálculo está en `src/lib/calc.ts` (`saldosCuentas`, `resume
 - Sincronización entre dispositivos (Supabase / Firebase) manteniendo el modo sin conexión.
 - Ahorro en dólares con tipo de cambio.
 - Empaquetar como app nativa con Capacitor para publicar en Play Store / App Store.
+
+## Sincronización con Google Drive
+
+La app puede guardar los datos en el Google Drive del usuario para usarla en varios dispositivos y no perderlos si un teléfono se borra.
+
+- Usa el permiso `drive.appdata`: la app solo ve una carpeta oculta propia en el Drive, no los archivos del usuario.
+- Inicio de sesión con OAuth 2.0 para aplicaciones del lado del cliente (redirección, sin servidor). El permiso dura una hora; al abrir la app después, se renueva solo con `prompt=none`.
+- Cada dispositivo anota cuándo cambió o eliminó cada registro (`control-financiero-sync-registro`). Al sincronizar se fusiona registro por registro y gana la versión más reciente, así no se pierden cambios hechos a la vez en dos dispositivos (`src/lib/sync/fusion.ts`).
+- Un dispositivo nuevo, sin registros, toma todo lo que hay en Drive.
+
+### Configuración (una sola vez)
+
+1. En [Google Cloud Console](https://console.cloud.google.com/) crea un proyecto y habilita **Google Drive API**.
+2. **Pantalla de consentimiento OAuth**: tipo *Externo*, en modo *Prueba*, y agrega tu Gmail como usuario de prueba.
+3. **Credenciales → Crear ID de cliente OAuth → Aplicación web**:
+   - Orígenes de JavaScript autorizados: `https://moloal99.github.io`
+   - URI de redireccionamiento autorizados: `https://moloal99.github.io/control-financiero/`
+4. En GitHub: **Settings → Secrets and variables → Actions → Variables → New repository variable**, nombre `GOOGLE_CLIENT_ID`, valor el ID de cliente (termina en `.apps.googleusercontent.com`).
+5. Vuelve a publicar (Actions → Deploy a GitHub Pages → Run workflow).

@@ -7,6 +7,7 @@ import { useMemo, useRef, useState, type DragEvent } from 'react'
 import { CLAVE_RESPALDO_MIGRACION, exportarDatos, useStore } from '../store'
 import { marcarRespaldoDescargado } from '../lib/respaldo'
 import { CopiasGuardadas } from '../components/Recuperar'
+import { TarjetaSync } from '../components/Sync'
 import { normalizar } from '../lib/migrar'
 import { confirmar, toast, vibrar } from '../lib/feedback'
 import { fechaCorta, hoyISO, money, nombreMes } from '../lib/format'
@@ -21,6 +22,7 @@ const ACEPTA = '.xlsx,.xlsm,.xls,.csv,.json'
 export function Datos({ mes }: { mes: string }) {
   return (
     <div className="space-y-4 md:space-y-5">
+      <TarjetaSync />
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4 md:gap-5 items-start">
         <Exportar mes={mes} />
         <Importar />
